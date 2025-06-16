@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:library_booking/services/telegram_service.dart';
 import 'package:library_booking/services/auth_service.dart';
+import 'package:library_booking/services/calendar_service.dart';
+import 'package:library_booking/services/pdf_generation_service.dart';
+import 'dart:typed_data'; // For Uint8List
 
 class Booking {
   final String bookingId; // Firestore document ID
@@ -165,6 +168,46 @@ Time: $timeSlot""";
         'status': 'Cancelled',
         'updatedAt': Timestamp.now(),
       });
+
+      // Add this block for Calendar Event Deletion:
+      try {
+        // Booking object is already fetched as `booking` in this method
+        if (booking.calendarEventId != null && booking.calendarEventId!.isNotEmpty) {
+          // Instantiate CalendarService
+          final CalendarService calendarService = CalendarService(
+            clientId: "cKLSwjQNympUGok21LQuEp6DRF5tDARh",
+            clientSecret: "CRN_YOI66tYVtltMOkQsxzxeCdWy7i8caDq3iv0Xzd",
+            redirectUri: "com.smartlibrarybooker://oauth2redirect",
+          );
+
+          List<dynamic>? calendars = await calendarService.listCalendars(booking.userId);
+          if (calendars != null && calendars.isNotEmpty) {
+             Map<String, dynamic>? targetCalendar = calendars.firstWhere(
+              (cal) => cal['calendar_readonly'] == false && cal['calendar_deleted'] == false,
+              orElse: () => null,
+            );
+
+            if (targetCalendar != null) {
+              String calendarId = targetCalendar['calendar_id'];
+              bool eventDeleted = await calendarService.deleteCalendarEvent(booking.userId, calendarId, booking.calendarEventId!);
+              if (eventDeleted) {
+                print('Calendar event ${booking.calendarEventId} deleted successfully for booking $bookingId.');
+                await _firestore.collection(_collectionPath).doc(bookingId).update({'calendarEventId': null});
+              } else {
+                print('Failed to delete calendar event for booking $bookingId.');
+              }
+            } else {
+               print('No suitable writable calendar found for user ${booking.userId} to delete event from.');
+            }
+          } else {
+              print('Could not retrieve calendars for user ${booking.userId} to delete event.');
+          }
+        } else {
+          print('No calendar event ID found for booking $bookingId. Skipping calendar event deletion.');
+        }
+      } catch (e) {
+        print('Error during calendar event deletion for booking $bookingId: $e');
+      }
     } catch (e) {
       print('Error cancelling booking: $e');
       rethrow;
@@ -260,6 +303,116 @@ Time: $timeSlot""";
         print('Failed to send Telegram approval notification to user: $e');
         // Do not rethrow, as approval itself was successful.
       }
+
+      // Add this block for Calendar Event Creation:
+      try {
+        Booking? bookingDetails = await getBookingDetails(bookingId);
+        if (bookingDetails != null) {
+          // Instantiate CalendarService with actual credentials
+          final CalendarService calendarService = CalendarService(
+            clientId: "cKLSwjQNympUGok21LQuEp6DRF5tDARh",
+            clientSecret: "CRN_YOI66tYVtltMOkQsxzxeCdWy7i8caDq3iv0Xzd",
+            redirectUri: "com.smartlibrarybooker://oauth2redirect",
+          );
+
+          List<dynamic>? calendars = await calendarService.listCalendars(bookingDetails.userId);
+          if (calendars != null && calendars.isNotEmpty) {
+            Map<String, dynamic>? targetCalendar = calendars.firstWhere(
+              (cal) => cal['calendar_readonly'] == false && cal['calendar_deleted'] == false,
+              orElse: () => null,
+            );
+
+            if (targetCalendar != null) {
+              String calendarId = targetCalendar['calendar_id'];
+              String eventSummary = 'Library Booking: Room ${bookingDetails.roomId}';
+              String eventDescription = 'Booking for room ${bookingDetails.roomId} from ${bookingDetails.timeSlot}. User: ${bookingDetails.userEmail}.';
+              if (adminMessage != null && adminMessage.isNotEmpty) {
+                eventDescription += '\nAdmin Message: $adminMessage';
+              }
+
+              List<String> times = bookingDetails.timeSlot.split('-');
+              String startTimeStr = times[0].split(':')[0];
+
+              DateTime startDateTime = DateTime(
+                bookingDetails.date.year,
+                bookingDetails.date.month,
+                bookingDetails.date.day,
+                int.parse(startTimeStr),
+                00,
+              );
+              DateTime endDateTime = startDateTime.add(Duration(hours: 1));
+
+              Map<String, dynamic> eventData = {
+                'event_id': bookingDetails.bookingId,
+                'summary': eventSummary,
+                'description': eventDescription,
+                'start': startDateTime.toUtc().toIso8601String(),
+                'end': endDateTime.toUtc().toIso8601String(),
+                'tzid': 'Asia/Singapore',
+              };
+
+              bool eventCreated = await calendarService.createCalendarEvent(bookingDetails.userId, calendarId, eventData);
+              if (eventCreated) {
+                print('Calendar event created successfully for booking $bookingId.');
+                await _firestore.collection(_collectionPath).doc(bookingId).update({'calendarEventId': bookingDetails.bookingId});
+              } else {
+                print('Failed to create calendar event for booking $bookingId.');
+              }
+            } else {
+              print('No suitable writable calendar found for user ${bookingDetails.userId}');
+            }
+          } else {
+            print('Could not retrieve calendars for user ${bookingDetails.userId} or no calendars available.');
+          }
+        }
+      } catch (e) {
+        print('Error during calendar event creation for booking $bookingId: $e');
+      }
+
+      // Add this block for PDF Generation:
+      try {
+        // Fetch booking details again, or ensure they are available from previous steps in the method
+        Booking? bookingDetails = await getBookingDetails(bookingId);
+        if (bookingDetails != null) {
+          // Instantiate PdfGenerationService with the API key
+          final PdfGenerationService pdfService = PdfGenerationService(
+            apiKey: "sk_e15c28cb8e85ed5e9d10c0dd7c13732416496c2f", // User-provided
+          );
+
+          String roomNameToDisplay = bookingDetails.roomId; // Placeholder: Replace with actual room name if fetched
+          String formattedDate = "${bookingDetails.date.day.toString().padLeft(2, '0')}/${bookingDetails.date.month.toString().padLeft(2, '0')}/${bookingDetails.date.year}";
+
+          String htmlContent = pdfService.getBookingConfirmationHtmlTemplate(
+            bookingId: bookingDetails.bookingId,
+            userName: bookingDetails.userEmail,
+            roomName: roomNameToDisplay,
+            date: formattedDate,
+            timeSlot: bookingDetails.timeSlot,
+            adminMessage: bookingDetails.adminMessage,
+          );
+
+          Uint8List? pdfData = await pdfService.generatePdfFromHtml(htmlContent);
+
+          if (pdfData != null) {
+            print('PDF generated successfully for booking $bookingId. Size: ${pdfData.lengthInBytes} bytes.');
+            String placeholderPdfUrl = 'placeholder_pdf_url_for_booking_$bookingId.pdf';
+            await updateBookingWithPdfUrl(bookingId, placeholderPdfUrl);
+            print('Booking $bookingId updated with placeholder PDF URL: $placeholderPdfUrl');
+
+          } else {
+            print('Failed to generate PDF for booking $bookingId.');
+          }
+
+          // After all successful operations, store the bookingId as QR code data
+          await updateBookingWithQrCode(bookingId, bookingId); // Storing bookingId itself as qrCodeData
+          print('Booking $bookingId updated with QR Code Data (bookingId).');
+
+        }
+      } catch (e) {
+        // This catch block now covers PDF generation and QR code update.
+        // If more granularity is needed, separate try-catch blocks would be used.
+        print('Error during post-approval integrations (PDF/QR) for booking $bookingId: $e');
+      }
     } catch (e) {
       print('Error approving booking: $e');
       rethrow;
@@ -292,6 +445,46 @@ Time: $timeSlot""";
       } catch (e) {
         print('Failed to send Telegram rejection notification to user: $e');
         // Do not rethrow, as rejection itself was successful.
+      }
+
+      // Add this block for Calendar Event Deletion:
+      try {
+        Booking? bookingDetails = await getBookingDetails(bookingId);
+        if (bookingDetails != null && bookingDetails.calendarEventId != null && bookingDetails.calendarEventId!.isNotEmpty) {
+          // Instantiate CalendarService
+          final CalendarService calendarService = CalendarService(
+            clientId: "cKLSwjQNympUGok21LQuEp6DRF5tDARh",
+            clientSecret: "CRN_YOI66tYVtltMOkQsxzxeCdWy7i8caDq3iv0Xzd",
+            redirectUri: "com.smartlibrarybooker://oauth2redirect",
+          );
+
+          List<dynamic>? calendars = await calendarService.listCalendars(bookingDetails.userId);
+          if (calendars != null && calendars.isNotEmpty) {
+             Map<String, dynamic>? targetCalendar = calendars.firstWhere(
+              (cal) => cal['calendar_readonly'] == false && cal['calendar_deleted'] == false,
+              orElse: () => null,
+            );
+
+            if (targetCalendar != null) {
+              String calendarId = targetCalendar['calendar_id'];
+              bool eventDeleted = await calendarService.deleteCalendarEvent(bookingDetails.userId, calendarId, bookingDetails.calendarEventId!);
+              if (eventDeleted) {
+                print('Calendar event ${bookingDetails.calendarEventId} deleted successfully for booking $bookingId.');
+                await _firestore.collection(_collectionPath).doc(bookingId).update({'calendarEventId': null});
+              } else {
+                print('Failed to delete calendar event for booking $bookingId.');
+              }
+            } else {
+               print('No suitable writable calendar found for user ${bookingDetails.userId} to delete event from.');
+            }
+          } else {
+              print('Could not retrieve calendars for user ${bookingDetails.userId} to delete event.');
+          }
+        } else if (bookingDetails != null && (bookingDetails.calendarEventId == null || bookingDetails.calendarEventId!.isEmpty)) {
+          print('No calendar event ID found for booking $bookingId. Skipping calendar event deletion.');
+        }
+      } catch (e) {
+        print('Error during calendar event deletion for booking $bookingId: $e');
       }
     } catch (e) {
       print('Error rejecting booking: $e');

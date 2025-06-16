@@ -106,4 +106,13 @@ class AuthService {
       return null; // Or rethrow, depending on desired error handling
     }
   }
+
+  Future<DocumentSnapshot?> getUserDocument(String uid) async {
+    try {
+      return await _firestore.collection('users').doc(uid).get();
+    } catch (e) {
+      print('Error getting user document: $e');
+      return null;
+    }
+  }
 } 
