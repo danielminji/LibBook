@@ -7,6 +7,12 @@ import 'package:library_booking/pages/welcome_page.dart';
 import 'package:library_booking/pages/login_page.dart';
 import 'package:library_booking/pages/signup_page.dart';
 import 'package:library_booking/pages/home_page.dart'; // Contains UserHomePage class
+// Admin page imports
+import 'package:library_booking/pages/admin/admin_home_page.dart';
+import 'package:library_booking/pages/admin/admin_manage_bookings_page.dart';
+import 'package:library_booking/pages/admin/admin_manage_rooms_page.dart';
+import 'package:library_booking/pages/admin/admin_manage_announcements_page.dart';
+import 'package:library_booking/pages/admin/admin_view_feedback_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,7 +97,12 @@ class MyApp extends StatelessWidget {
         LoginPage.routeName: (context) => const LoginPage(),
         SignUpPage.routeName: (context) => const SignUpPage(),
         UserHomePage.routeName: (context) => const UserHomePage(),
-        // Define other routes as pages are created
+        // Admin routes
+        AdminHomePage.routeName: (context) => const AdminHomePage(),
+        AdminManageBookingsPage.routeName: (context) => const AdminManageBookingsPage(),
+        AdminManageRoomsPage.routeName: (context) => const AdminManageRoomsPage(),
+        AdminManageAnnouncementsPage.routeName: (context) => const AdminManageAnnouncementsPage(),
+        AdminViewFeedbackPage.routeName: (context) => const AdminViewFeedbackPage(),
       },
     );
   }

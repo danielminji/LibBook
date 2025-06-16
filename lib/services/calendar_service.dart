@@ -211,7 +211,45 @@ class CalendarService {
   // Note: Update event is similar to create, but uses HTTP PUT/PATCH and targets a specific event_id.
   // For simplicity, only create and delete are scaffolded here.
   // The OAuth authorization URL can be constructed using _appHost, _clientId, _redirectUri, and scopes.
-  // e.g., 'https://$_cronofyAppHost/oauth/authorize?client_id=$_clientId&redirect_uri=$_redirectUri&response_type=code&scope=read_calendar create_event ...'
+
+  String getAuthorizationUrl(String state) {
+    // Recommended scopes: read_account list_calendars read_events create_event delete_event
+    // These should be space-separated and URL-encoded.
+    final String scopes = Uri.encodeComponent('read_account list_calendars read_events create_event delete_event');
+    return 'https://$_cronofyAppHost/oauth/authorize?response_type=code&client_id=$_clientId&redirect_uri=${Uri.encodeComponent(_redirectUri)}&scope=$scopes&state=$state';
+  }
+
+  Future<Map<String, dynamic>?> exchangeCodeForTokens(String code) async {
+    final String tokenUrl = 'https://$_cronofyApiHost/oauth/token';
+    try {
+      final response = await http.post(
+        Uri.parse(tokenUrl),
+        body: {
+          'client_id': _clientId,
+          'client_secret': _clientSecret,
+          'grant_type': 'authorization_code',
+          'code': code,
+          'redirect_uri': _redirectUri,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final tokenData = jsonDecode(response.body);
+        final DateTime expiryDateTime = DateTime.now().add(Duration(seconds: tokenData['expires_in']));
+        return {
+          'accessToken': tokenData['access_token'],
+          'refreshToken': tokenData['refresh_token'],
+          'expiryDateTime': expiryDateTime,
+        };
+      } else {
+        print('Failed to exchange Cronofy code for tokens. Status: ${response.statusCode}, Body: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('Error exchanging Cronofy code for tokens: $e');
+      return null;
+    }
+  }
 }
 
 // Example of how to instantiate:

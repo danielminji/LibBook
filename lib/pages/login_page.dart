@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:library_booking/services/auth_service.dart'; // Import AuthService
 import 'package:library_booking/pages/signup_page.dart';  // For navigation
-import 'package:library_booking/pages/home_page.dart';    // For navigation
+import 'package:library_booking/pages/home_page.dart';    // For UserHomePage navigation
+import 'package:library_booking/pages/admin/admin_home_page.dart'; // For AdminHomePage navigation
+import 'package:library_booking/pages/welcome_page.dart'; // For ModalRoute.withName
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -34,9 +36,16 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (userCredential != null && userCredential.user != null) {
-          // Navigate to home page on successful login
-          // Replace all routes below WelcomePage with UserHomePage
-          Navigator.of(context).pushNamedAndRemoveUntil(UserHomePage.routeName, ModalRoute.withName('/'));
+          // Get user role
+          String? userRole = await _authService.getUserRole(userCredential.user!.uid);
+
+          if (mounted) { // Check if widget is still in the tree
+            if (userRole == 'admin') {
+              Navigator.of(context).pushNamedAndRemoveUntil(AdminHomePage.routeName, ModalRoute.withName(WelcomePage.routeName));
+            } else {
+              Navigator.of(context).pushNamedAndRemoveUntil(UserHomePage.routeName, ModalRoute.withName(WelcomePage.routeName));
+            }
+          }
         } else {
           // Should not happen if signInWithEmailPassword throws an error on failure
           setState(() {
