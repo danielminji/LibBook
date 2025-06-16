@@ -1,248 +1,356 @@
-import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:library_booking/services/telegram_service.dart';
+import 'package:library_booking/services/auth_service.dart';
 
 class Booking {
-  final String roomName;
-  final DateTime date;
-  final String timeSlot;
-  String status;
+  final String bookingId; // Firestore document ID
+  final String userId;
+  final String userEmail; // Kept for convenience
+  final String roomId;
+  // String roomName; // Consider removing or denormalizing if essential for lists
+  final DateTime date; // Store as Timestamp in Firestore, convert to DateTime
+  final String timeSlot; // e.g., "09:00-10:00"
+  String status; // 'Pending', 'Approved', 'Rejected', 'Cancelled'
   String? adminMessage;
-  final String userEmail;
-  List<String> violations;
+  final DateTime createdAt;
+  DateTime updatedAt;
+  List<String> violations; // Keep for future use
+
+  // Fields for integrations
+  String? qrCodeData;
+  String? pdfConfirmationUrl;
+  String? calendarEventId;
+  String? bookedByAdminId; // ID of admin who approved/rejected
 
   Booking({
-    required this.roomName,
+    required this.bookingId,
+    required this.userId,
+    required this.userEmail,
+    required this.roomId,
     required this.date,
     required this.timeSlot,
-    required this.userEmail,
     this.status = 'Pending',
     this.adminMessage,
-    List<String>? violations,
-  }) : violations = violations ?? [];
-}
-
-class Announcement {
-  final String title;
-  final String message;
-  final DateTime date;
-  final String type;
-  final String? targetUserEmail;
-
-  Announcement({
-    required this.title,
-    required this.message,
-    required this.date,
-    required this.type,
-    this.targetUserEmail,
+    required this.createdAt,
+    required this.updatedAt,
+    this.violations = const [],
+    this.qrCodeData,
+    this.pdfConfirmationUrl,
+    this.calendarEventId,
+    this.bookedByAdminId,
   });
+
+  factory Booking.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Booking(
+      bookingId: doc.id,
+      userId: data['userId'] ?? '',
+      userEmail: data['userEmail'] ?? '',
+      roomId: data['roomId'] ?? '',
+      date: (data['date'] as Timestamp).toDate(),
+      timeSlot: data['timeSlot'] ?? '',
+      status: data['status'] ?? 'Pending',
+      adminMessage: data['adminMessage'],
+      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      updatedAt: (data['updatedAt'] as Timestamp).toDate(),
+      violations: List<String>.from(data['violations'] ?? []),
+      qrCodeData: data['qrCodeData'],
+      pdfConfirmationUrl: data['pdfConfirmationUrl'],
+      calendarEventId: data['calendarEventId'],
+      bookedByAdminId: data['bookedByAdminId'],
+    );
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'userId': userId,
+      'userEmail': userEmail,
+      'roomId': roomId,
+      'date': Timestamp.fromDate(date),
+      'timeSlot': timeSlot,
+      'status': status,
+      'adminMessage': adminMessage,
+      'createdAt': Timestamp.fromDate(createdAt),
+      'updatedAt': Timestamp.fromDate(updatedAt),
+      'violations': violations,
+      'qrCodeData': qrCodeData,
+      'pdfConfirmationUrl': pdfConfirmationUrl,
+      'calendarEventId': calendarEventId,
+      'bookedByAdminId': bookedByAdminId,
+    };
+  }
 }
 
 class BookingService {
-  static final List<Booking> _bookings = [];
-  static final List<Announcement> _announcements = [];
-  static final Map<String, Set<String>> _bookedTimeSlots = {};
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final String _collectionPath = 'bookings';
 
-  static final _myNotificationsController =
-      StreamController<List<Announcement>>.broadcast();
-  static final _generalAnnouncementsController =
-      StreamController<List<Announcement>>.broadcast();
-  static final _bookingsController =
-      StreamController<List<Booking>>.broadcast();
-
-  // Helper method to convert DateTime to string key
-  static String _dateToKey(DateTime date) {
-    return '${date.year}-${date.month}-${date.day}';
+  // Helper for predefined time slots (example, this could be configurable elsewhere)
+  static List<String> getPredefinedTimeSlots() {
+    // Example: 1-hour slots from 9 AM to 5 PM
+    return List.generate(8, (index) {
+      int hour = 9 + index;
+      return '${hour.toString().padLeft(2, '0')}:00-${(hour + 1).toString().padLeft(2, '0')}:00';
+    });
   }
 
-  // Booking methods
-  static void addBooking(Booking booking) {
-    _bookings.add(booking);
+  Future<DocumentReference> requestBooking({
+    required String userId,
+    required String userEmail,
+    required String roomId,
+    required DateTime date,
+    required String timeSlot,
+  }) async {
+    try {
+      Timestamp now = Timestamp.now();
+      // Check for conflicts before adding
+      QuerySnapshot conflictingBookings = await _firestore
+          .collection(_collectionPath)
+          .where('roomId', isEqualTo: roomId)
+          .where('date', isEqualTo: Timestamp.fromDate(DateTime(date.year, date.month, date.day))) // Compare date part only
+          .where('timeSlot', isEqualTo: timeSlot)
+          .where('status', whereIn: ['Pending', 'Approved']) // Check against pending and approved
+          .get();
 
-    // Create a booking notification announcement that will appear in My Notifications
-    addAnnouncement(
-      Announcement(
-        title: 'Booking Request Submitted',
-        message: 'Your booking request details:\n\n'
-            'Room: ${booking.roomName}\n'
-            'Date: ${_formatDate(booking.date)}\n'
-            'Time: ${booking.timeSlot}\n'
-            'Status: ${booking.status}',
-        date: DateTime.now(),
-        type: 'Booking',
-        targetUserEmail: booking.userEmail,
-      ),
-    );
+      if (conflictingBookings.docs.isNotEmpty) {
+        throw Exception('This time slot is already booked or pending for this room.');
+      }
 
-    _updateBookingsStream();
+      DocumentReference bookingRef = await _firestore.collection(_collectionPath).add({
+        'userId': userId,
+        'userEmail': userEmail,
+        'roomId': roomId,
+        'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)), // Store date part only
+        'timeSlot': timeSlot,
+        'status': 'Pending',
+        'createdAt': now,
+        'updatedAt': now,
+        'violations': [],
+        // other fields will be null by default
+      });
+
+      // Add this block for Telegram Admin Notification:
+      try {
+        final TelegramService telegramService = TelegramService();
+        // Use the parameters directly available in the method scope
+        String adminNotificationMessage = """New booking request:
+User: $userEmail
+Room ID: $roomId
+Date: ${date.toIso8601String().split('T').first}
+Time: $timeSlot""";
+        await telegramService.notifyAdmin(adminNotificationMessage);
+      } catch (e) {
+        print('Failed to send Telegram admin notification for new booking: $e');
+        // Do not rethrow, as booking itself was successful.
+      }
+      return bookingRef;
+    } catch (e) {
+      print('Error requesting booking: $e');
+      rethrow;
+    }
   }
 
-  static List<Booking> getBookings() {
-    return List.from(_bookings);
+  Future<void> cancelBooking(String bookingId, String currentUserId) async {
+    try {
+      DocumentSnapshot bookingDoc = await _firestore.collection(_collectionPath).doc(bookingId).get();
+      if (!bookingDoc.exists) {
+        throw Exception("Booking not found.");
+      }
+      Booking booking = Booking.fromFirestore(bookingDoc);
+      if (booking.userId != currentUserId) {
+        throw Exception("You are not authorized to cancel this booking.");
+      }
+      // Optionally, add rules like cannot cancel if booking is in the past or too close
+      await _firestore.collection(_collectionPath).doc(bookingId).update({
+        'status': 'Cancelled',
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      print('Error cancelling booking: $e');
+      rethrow;
+    }
   }
 
-  static List<Booking> getPendingBookings() {
-    return _bookings.where((booking) => booking.status == 'Pending').toList();
+  Future<Booking?> getBookingDetails(String bookingId) async {
+    try {
+      DocumentSnapshot doc = await _firestore.collection(_collectionPath).doc(bookingId).get();
+      if (doc.exists) {
+        return Booking.fromFirestore(doc);
+      }
+      return null;
+    } catch (e) {
+      print('Error getting booking details: $e');
+      rethrow;
+    }
   }
 
-  static Set<String> getBookedTimeSlots(DateTime date) {
-    final approvedBookings = _bookings
-        .where((booking) =>
-            booking.status == 'Approved' &&
-            booking.date.year == date.year &&
-            booking.date.month == date.month &&
-            booking.date.day == date.day)
-        .map((booking) => booking.timeSlot)
-        .toSet();
-
-    return approvedBookings;
+  Stream<List<Booking>> getUserBookings(String userId) {
+    return _firestore
+        .collection(_collectionPath)
+        .where('userId', isEqualTo: userId)
+        .orderBy('date', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Booking.fromFirestore(doc)).toList());
   }
 
-  static void approveBooking(Booking booking, String message) {
-    booking.status = 'Approved';
-    booking.adminMessage = message;
-
-    final dateKey = _dateToKey(booking.date);
-    _bookedTimeSlots.putIfAbsent(dateKey, () => {});
-    _bookedTimeSlots[dateKey]!.add(booking.timeSlot);
-
-    // Create approval notification that will appear in My Notifications
-    addAnnouncement(
-      Announcement(
-        title: 'Booking Approved! 🎉',
-        message: 'Your booking has been approved!\n\n'
-            'Room: ${booking.roomName}\n'
-            'Date: ${_formatDate(booking.date)}\n'
-            'Time: ${booking.timeSlot}\n'
-            'Status: Approved'
-            '${message.isNotEmpty ? '\nAdmin Message: $message' : ''}',
-        date: DateTime.now(),
-        type: 'Approval',
-        targetUserEmail: booking.userEmail,
-      ),
-    );
-
-    _updateBookingsStream();
+  Stream<List<Booking>> getRoomBookingsForDate(String roomId, DateTime date) {
+    DateTime dayStart = DateTime(date.year, date.month, date.day);
+    DateTime dayEnd = DateTime(date.year, date.month, date.day, 23, 59, 59);
+    return _firestore
+        .collection(_collectionPath)
+        .where('roomId', isEqualTo: roomId)
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(dayStart))
+        .where('date', isLessThanOrEqualTo: Timestamp.fromDate(dayEnd))
+        .where('status', whereIn: ['Approved', 'Pending']) // Show approved and pending for availability checks
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Booking.fromFirestore(doc)).toList());
   }
 
-  static void rejectBooking(Booking booking, String reason) {
-    booking.status = 'Rejected';
-    booking.adminMessage = reason;
-
-    addAnnouncement(
-      Announcement(
-        title: 'Booking Rejected',
-        message: 'Your booking request has been rejected.\n\n'
-            'Room: ${booking.roomName}\n'
-            'Date: ${_formatDate(booking.date)}\n'
-            'Time: ${booking.timeSlot}\n'
-            'Reason: $reason',
-        date: DateTime.now(),
-        type: 'Rejection',
-        targetUserEmail: booking.userEmail,
-      ),
-    );
-
-    _updateBookingsStream();
+  Stream<List<String>> getAvailableTimeSlots(String roomId, DateTime date) {
+     DateTime dayStart = DateTime(date.year, date.month, date.day);
+     return _firestore
+         .collection(_collectionPath)
+         .where('roomId', isEqualTo: roomId)
+         .where('date', isEqualTo: Timestamp.fromDate(dayStart))
+         .where('status', whereIn: ['Approved', 'Pending']) // Consider both approved and pending as unavailable
+         .snapshots()
+         .map((snapshot) {
+             Set<String> bookedSlots = snapshot.docs.map((doc) => doc.data()['timeSlot'] as String).toSet();
+             List<String> allPossibleSlots = getPredefinedTimeSlots(); // Using the static helper
+             return allPossibleSlots.where((slot) => !bookedSlots.contains(slot)).toList();
+         });
   }
 
-  // Announcement methods
-  static void addAnnouncement(Announcement announcement) {
-    _announcements.add(announcement);
-    _updateAnnouncementStreams();
+  Stream<List<Booking>> getPendingBookings() {
+    return _firestore
+        .collection(_collectionPath)
+        .where('status', isEqualTo: 'Pending')
+        .orderBy('createdAt', descending: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => Booking.fromFirestore(doc)).toList());
   }
 
-  static List<Announcement> getAnnouncements() {
-    return List.from(_announcements);
+  Future<void> approveBooking(String bookingId, String adminId, {String? adminMessage}) async {
+    try {
+      await _firestore.collection(_collectionPath).doc(bookingId).update({
+        'status': 'Approved',
+        'bookedByAdminId': adminId,
+        'adminMessage': adminMessage,
+        'updatedAt': Timestamp.now(),
+      });
+
+      // Add this block for Telegram User Notification:
+      try {
+        Booking? bookingDetails = await getBookingDetails(bookingId); // Assuming this method fetches the full Booking object
+        if (bookingDetails != null) {
+          final AuthService authService = AuthService();
+          String? userTelegramChatId = await authService.getUserTelegramChatId(bookingDetails.userId);
+
+          if (userTelegramChatId != null && userTelegramChatId.isNotEmpty) {
+            final TelegramService telegramService = TelegramService();
+            String userNotificationMessage = "Your booking for Room ${bookingDetails.roomId} on ${bookingDetails.date.toIso8601String().split('T').first} at ${bookingDetails.timeSlot} has been APPROVED.";
+            // 'adminMessage' is a parameter of approveBooking method
+            if (adminMessage != null && adminMessage.isNotEmpty) {
+              userNotificationMessage += "\nAdmin message: $adminMessage";
+            }
+            await telegramService.sendMessage(userTelegramChatId, userNotificationMessage);
+          }
+        }
+      } catch (e) {
+        print('Failed to send Telegram approval notification to user: $e');
+        // Do not rethrow, as approval itself was successful.
+      }
+    } catch (e) {
+      print('Error approving booking: $e');
+      rethrow;
+    }
   }
 
-  // Stream getters
-  static Stream<List<Announcement>> getMyNotificationsStream() {
-    return _myNotificationsController.stream;
+  Future<void> rejectBooking(String bookingId, String adminId, String reason) async {
+    try {
+      await _firestore.collection(_collectionPath).doc(bookingId).update({
+        'status': 'Rejected',
+        'bookedByAdminId': adminId,
+        'adminMessage': reason,
+        'updatedAt': Timestamp.now(),
+      });
+
+      // Add this block for Telegram User Notification:
+      try {
+        Booking? bookingDetails = await getBookingDetails(bookingId); // Assuming this method fetches the full Booking object
+        if (bookingDetails != null) {
+          final AuthService authService = AuthService();
+          String? userTelegramChatId = await authService.getUserTelegramChatId(bookingDetails.userId);
+
+          if (userTelegramChatId != null && userTelegramChatId.isNotEmpty) {
+            final TelegramService telegramService = TelegramService();
+            // 'reason' is a parameter of rejectBooking method
+            String userNotificationMessage = "Your booking for Room ${bookingDetails.roomId} on ${bookingDetails.date.toIso8601String().split('T').first} at ${bookingDetails.timeSlot} has been REJECTED.\nReason: $reason";
+            await telegramService.sendMessage(userTelegramChatId, userNotificationMessage);
+          }
+        }
+      } catch (e) {
+        print('Failed to send Telegram rejection notification to user: $e');
+        // Do not rethrow, as rejection itself was successful.
+      }
+    } catch (e) {
+      print('Error rejecting booking: $e');
+      rethrow;
+    }
   }
 
-  static Stream<List<Announcement>> getGeneralAnnouncementsStream() {
-    return _generalAnnouncementsController.stream;
+  Future<void> updateBookingStatus(String bookingId, String status, {String? adminId, String? message}) async {
+     try {
+         Map<String, dynamic> updateData = {
+             'status': status,
+             'updatedAt': Timestamp.now(),
+         };
+         if (adminId != null) updateData['bookedByAdminId'] = adminId;
+         if (message != null) updateData['adminMessage'] = message;
+
+         await _firestore.collection(_collectionPath).doc(bookingId).update(updateData);
+     } catch (e) {
+         print('Error updating booking status: $e');
+         rethrow;
+     }
+ }
+
+  Future<void> updateBookingWithQrCode(String bookingId, String qrData) async {
+    try {
+      await _firestore.collection(_collectionPath).doc(bookingId).update({
+        'qrCodeData': qrData,
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      print('Error updating booking with QR code: $e');
+      rethrow;
+    }
   }
 
-  static Stream<List<Booking>> getBookingsStream() {
-    return _bookingsController.stream;
+  Future<void> updateBookingWithPdfUrl(String bookingId, String pdfUrl) async {
+    try {
+      await _firestore.collection(_collectionPath).doc(bookingId).update({
+        'pdfConfirmationUrl': pdfUrl,
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      print('Error updating booking with PDF URL: $e');
+      rethrow;
+    }
   }
 
-  // Stream update methods
-  static void _updateAnnouncementStreams() {
-    // Personal notifications (includes bookings and approvals)
-    final notifications = _announcements
-        .where((a) =>
-            a.targetUserEmail ==
-                'user@example.com' || // Show user-specific notifications
-            a.type.toLowerCase() == 'booking' ||
-            a.type.toLowerCase() == 'approval' ||
-            a.type.toLowerCase() == 'rejection')
-        .toList();
-    _myNotificationsController.add(notifications);
-
-    // General announcements (includes announcements from admin)
-    final generalAnnouncements = _announcements
-        .where((a) =>
-                a.type.toLowerCase() ==
-                    'general' || // Show general announcements
-                a.targetUserEmail ==
-                    null // Show announcements without specific target
-            )
-        .toList();
-    _generalAnnouncementsController.add(generalAnnouncements);
+  Future<void> updateBookingWithCalendarEventId(String bookingId, String eventId) async {
+    try {
+      await _firestore.collection(_collectionPath).doc(bookingId).update({
+        'calendarEventId': eventId,
+        'updatedAt': Timestamp.now(),
+      });
+    } catch (e) {
+      print('Error updating booking with Calendar Event ID: $e');
+      rethrow;
+    }
   }
 
-  static void _updateBookingsStream() {
-    _bookingsController.add(List.from(_bookings));
-  }
-
-  // Helper method for date formatting
-  static String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
-  }
-
-  // Admin methods
-  static void createGeneralAnnouncement({
-    required String title,
-    required String message,
-  }) {
-    final announcement = Announcement(
-      title: title,
-      message: message,
-      date: DateTime.now(),
-      type: 'General',
-      targetUserEmail: null, // null means visible to all users
-    );
-
-    _announcements.add(announcement);
-    _updateAnnouncementStreams();
-  }
-
-  static void addViolation(Booking booking, String violation) {
-    booking.violations.add(violation);
-
-    addAnnouncement(
-      Announcement(
-        title: 'Violation Reported',
-        message:
-            'A violation has been reported for your booking of ${booking.roomName}.\n'
-            'Date: ${_formatDate(booking.date)}\n'
-            'Time: ${booking.timeSlot}\n'
-            'Violation: $violation',
-        date: DateTime.now(),
-        type: 'Violation',
-        targetUserEmail: booking.userEmail,
-      ),
-    );
-
-    _updateBookingsStream();
-  }
-
-  // Cleanup method
-  static void dispose() {
-    _myNotificationsController.close();
-    _generalAnnouncementsController.close();
-    _bookingsController.close();
-  }
+  // Clean up method if needed (not strictly necessary for this service type)
+  // static void dispose() {}
 }

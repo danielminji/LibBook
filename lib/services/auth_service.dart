@@ -35,6 +35,7 @@ class AuthService {
       'role': role,
       'createdAt': Timestamp.now(),
       'lastLogin': Timestamp.now(),
+      'telegram_chat_id': null,
     });
   }
 
@@ -72,6 +73,37 @@ class AuthService {
       return null;
     } catch (e) {
       return null;
+    }
+  }
+
+  // Update Telegram chat ID
+  Future<void> updateTelegramChatId(String userId, String chatId) async {
+    try {
+      await _firestore.collection('users').doc(userId).update({
+        'telegram_chat_id': chatId,
+      });
+    } catch (e) {
+      // Consider logging the error or handling it more specifically
+      print('Error updating Telegram chat ID: $e');
+      rethrow;
+    }
+  }
+
+  // Get user's Telegram Chat ID
+  Future<String?> getUserTelegramChatId(String userId) async {
+    try {
+      DocumentSnapshot doc = await _firestore.collection('users').doc(userId).get();
+      if (doc.exists) {
+        // Attempt to cast to Map<String, dynamic> first for safety
+        var data = doc.data() as Map<String, dynamic>?;
+        if (data != null && data.containsKey('telegram_chat_id')) {
+          return data['telegram_chat_id'] as String?;
+        }
+      }
+      return null;
+    } catch (e) {
+      print('Error getting user Telegram chat ID: $e');
+      return null; // Or rethrow, depending on desired error handling
     }
   }
 } 
