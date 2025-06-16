@@ -1,56 +1,71 @@
 import 'package:flutter/material.dart';
 import 'package:library_booking/services/auth_service.dart'; // Import AuthService
-import 'package:library_booking/pages/signup_page.dart';  // For navigation
-import 'package:library_booking/pages/home_page.dart';    // For navigation
+import 'package:library_booking/pages/login_page.dart';    // For navigation
+import 'package:library_booking/pages/home_page.dart';      // For navigation
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-  static const String routeName = '/login';
+class SignUpPage extends StatefulWidget {
+  const SignUpPage({super.key});
+  static const String routeName = '/signup';
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<SignUpPage> createState() => _SignUpPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
+  final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  // Optional: Confirm Password Controller
+  // final TextEditingController _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
 
   final AuthService _authService = AuthService(); // Instantiate AuthService
 
-  Future<void> _loginUser() async {
+  Future<void> _signUpUser() async {
     if (_formKey.currentState!.validate()) {
+      // Optional: Check if password and confirm password match
+      // if (_passwordController.text != _confirmPasswordController.text) {
+      //   setState(() {
+      //     _errorMessage = 'Passwords do not match.';
+      //   });
+      //   return;
+      // }
+
       setState(() {
         _isLoading = true;
         _errorMessage = null;
       });
 
       try {
-        final userCredential = await _authService.signInWithEmailPassword(
-          _emailController.text.trim(),
-          _passwordController.text.trim(),
+        final userCredential = await _authService.registerWithEmailPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+          username: _usernameController.text.trim(),
         );
 
         if (userCredential != null && userCredential.user != null) {
-          // Navigate to home page on successful login
+          // Navigate to home page on successful signup
           // Replace all routes below WelcomePage with UserHomePage
           Navigator.of(context).pushNamedAndRemoveUntil(UserHomePage.routeName, ModalRoute.withName('/'));
         } else {
-          // Should not happen if signInWithEmailPassword throws an error on failure
+          // This case should ideally not be reached if registerWithEmailPassword throws on failure.
           setState(() {
-            _errorMessage = 'Login failed. Please try again.';
+            _errorMessage = 'Sign up failed. Please try again.';
           });
         }
       } catch (e) {
-        // Handle Firebase Auth exceptions (e.g., user-not-found, wrong-password)
-        // You might want to parse specific FirebaseException codes for better messages
-        print('Login error: $e');
+        // Handle Firebase Auth exceptions (e.g., email-already-in-use, weak-password)
+        print('SignUp error: $e');
+        String displayMessage = 'An error occurred. Please try again.';
+        if (e.toString().contains('email-already-in-use')) {
+          displayMessage = 'This email is already registered. Please login.';
+        } else if (e.toString().contains('weak-password')) {
+          displayMessage = 'The password is too weak.';
+        }
         setState(() {
-          _errorMessage = e.toString().contains('INVALID_LOGIN_CREDENTIALS')
-              ? 'Invalid email or password.'
-              : 'An error occurred. Please try again.';
+          _errorMessage = displayMessage;
         });
       } finally {
         if (mounted) {
@@ -64,8 +79,10 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    // _confirmPasswordController.dispose(); // if used
     super.dispose();
   }
 
@@ -74,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Login'),
+        title: const Text('Sign Up'),
         automaticallyImplyLeading: true, // Show back button
       ),
       body: Center(
@@ -87,7 +104,7 @@ class _LoginPageState extends State<LoginPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Text(
-                  'Welcome Back!',
+                  'Create Account',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.primary,
@@ -96,18 +113,39 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Log in to continue to Library Room Booker.',
+                  'Join us to start booking library rooms.',
                   style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
+                TextFormField(
+                  controller: _usernameController,
+                  decoration: InputDecoration(
+                    labelText: 'Username',
+                    hintText: 'Choose a username',
+                    prefixIcon: Icon(Icons.person, color: theme.colorScheme.primary),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter a username';
+                    }
+                    if (value.length < 3) {
+                      return 'Username must be at least 3 characters';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
                 TextFormField(
                   controller: _emailController,
                   decoration: InputDecoration(
                     labelText: 'Email',
                     hintText: 'Enter your email',
                     prefixIcon: Icon(Icons.email, color: theme.colorScheme.primary),
-                    border: OutlineInputBorder(
+                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
@@ -127,7 +165,7 @@ class _LoginPageState extends State<LoginPage> {
                   controller: _passwordController,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    hintText: 'Enter your password',
+                    hintText: 'Create a password',
                     prefixIcon: Icon(Icons.lock, color: theme.colorScheme.primary),
                      border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -136,7 +174,7 @@ class _LoginPageState extends State<LoginPage> {
                   obscureText: true,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
+                      return 'Please enter a password';
                     }
                     if (value.length < 6) {
                       return 'Password must be at least 6 characters';
@@ -144,6 +182,29 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
+                // Optional: Confirm Password Field
+                // const SizedBox(height: 16),
+                // TextFormField(
+                //   controller: _confirmPasswordController,
+                //   decoration: InputDecoration(
+                //     labelText: 'Confirm Password',
+                //     hintText: 'Re-enter your password',
+                //     prefixIcon: Icon(Icons.lock_outline, color: theme.colorScheme.primary),
+                //     border: OutlineInputBorder(
+                //       borderRadius: BorderRadius.circular(8),
+                //     ),
+                //   ),
+                //   obscureText: true,
+                //   validator: (value) {
+                //     if (value == null || value.isEmpty) {
+                //       return 'Please confirm your password';
+                //     }
+                //     if (value != _passwordController.text) {
+                //       return 'Passwords do not match';
+                //     }
+                //     return null;
+                //   },
+                // ),
                 const SizedBox(height: 24),
                 if (_errorMessage != null)
                   Padding(
@@ -157,16 +218,16 @@ class _LoginPageState extends State<LoginPage> {
                 _isLoading
                     ? const Center(child: CircularProgressIndicator())
                     : ElevatedButton(
-                        onPressed: _loginUser,
-                        child: const Text('Login'),
+                        onPressed: _signUpUser,
+                        child: const Text('Sign Up'),
                       ),
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: () {
-                    Navigator.pushNamed(context, SignUpPage.routeName);
+                    Navigator.pushNamed(context, LoginPage.routeName);
                   },
                   child: Text(
-                    'Don\'t have an account? Sign Up',
+                    'Already have an account? Login',
                     style: TextStyle(color: theme.colorScheme.primary),
                   ),
                 ),
