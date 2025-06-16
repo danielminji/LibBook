@@ -4,9 +4,19 @@ import 'package:library_booking/services/room_service.dart';
 import 'package:library_booking/services/booking_service.dart';
 import 'package:library_booking/pages/booking_request_page.dart';
 
-
+/// Displays detailed information about a specific room and allows users to select
+/// a date and time slot for booking.
+///
+/// This page fetches room details using [RoomService] and available time slots
+/// for a selected date using [BookingService]. Users can pick a date, view available
+/// slots, and select a slot to proceed to the [BookingRequestPage].
 class RoomDetailPage extends StatefulWidget {
+  /// The ID of the room for which details are to be displayed.
   final String roomId;
+
+  /// Creates an instance of [RoomDetailPage].
+  ///
+  /// Requires a [roomId] to fetch and display room information.
   const RoomDetailPage({super.key, required this.roomId});
 
   // static const String routeName = '/room-detail'; // Not strictly needed if always navigated to with arguments
@@ -15,6 +25,10 @@ class RoomDetailPage extends StatefulWidget {
   State<RoomDetailPage> createState() => _RoomDetailPageState();
 }
 
+/// Manages the state for the [RoomDetailPage].
+///
+/// Handles fetching room details, managing date selection, loading and displaying
+/// available time slots, and user interaction for selecting a time slot.
 class _RoomDetailPageState extends State<RoomDetailPage> {
   final RoomService _roomService = RoomService();
   final BookingService _bookingService = BookingService();
@@ -32,21 +46,33 @@ class _RoomDetailPageState extends State<RoomDetailPage> {
     _loadAvailableSlots(); // Load slots for default date
   }
 
+  /// Loads the stream of available time slots for the currently selected date and room.
+  ///
+  /// If [_selectedDate] is not null, it updates the [_availableSlotsStream] by calling
+  /// [BookingService.getAvailableTimeSlots]. It also resets [_selectedTimeSlot]
+  /// whenever the date changes or slots are reloaded.
   void _loadAvailableSlots() {
     if (_selectedDate != null) {
       setState(() {
         _availableSlotsStream = _bookingService.getAvailableTimeSlots(widget.roomId, _selectedDate!);
-        _selectedTimeSlot = null; // Reset selected slot when date changes
+        _selectedTimeSlot = null;
       });
     }
   }
 
+  /// Opens a date picker dialog to allow the user to select a booking date.
+  ///
+  /// The date picker is limited to selecting dates from the current day up to
+  /// 30 days in the future. If a new date is selected, [_selectedDate] is updated,
+  /// and available slots are reloaded via [_loadAvailableSlots].
+  ///
+  /// - [context]: The build context from which to show the dialog.
   Future<void> _pickDate(BuildContext context) async {
     final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime.now(), // Users can only book for today or future
-      lastDate: DateTime.now().add(const Duration(days: 30)), // Limit booking to 30 days ahead
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
     );
     if (pickedDate != null && pickedDate != _selectedDate) {
       setState(() {
@@ -56,18 +82,25 @@ class _RoomDetailPageState extends State<RoomDetailPage> {
     }
   }
 
+  /// Handles the selection of a time slot by the user.
+  ///
+  /// Updates the [_selectedTimeSlot] state. This method previously showed a dialog
+  /// for confirmation, but now primarily updates the state, and the actual navigation
+  /// or action is triggered by the "Proceed to Book Selected Slot" button.
+  ///
+  /// - [timeSlot]: The time slot string selected by the user.
   void _onTimeSlotSelected(String timeSlot) {
     setState(() {
       _selectedTimeSlot = timeSlot;
     });
-    // In a real app, this might enable a "Next" or "Book" button,
-    // or directly navigate if that's the desired flow.
-    // For now, let's show a confirmation dialog or print.
-
-    // Dialog is removed, navigation happens via the button
   }
 
-
+  /// Builds the UI for the Room Detail Page.
+  ///
+  /// Displays room information (name, capacity, amenities), a date picker,
+  /// and a list of available time slots for the selected date. A button to proceed
+  /// with booking is shown when a time slot is selected.
+  /// Uses [FutureBuilder] for room details and [StreamBuilder] for time slots.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -191,19 +224,18 @@ class _RoomDetailPageState extends State<RoomDetailPage> {
                     },
                   ),
                   const SizedBox(height: 30),
-                  // Placeholder for Book button - enabled when a slot is selected
                   if (_selectedTimeSlot != null)
                     Center(
                       child: ElevatedButton(
                         onPressed: (_selectedDate == null || room == null)
-                          ? null // Disable button if essential data is missing (though _selectedTimeSlot check implies _selectedDate is likely not null)
+                          ? null
                           : () {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => BookingRequestPage(
                                     roomId: widget.roomId,
-                                    roomName: room.name, // Pass the fetched room name
+                                    roomName: room.name,
                                     selectedDate: _selectedDate!,
                                     selectedTimeSlot: _selectedTimeSlot!,
                                   ),

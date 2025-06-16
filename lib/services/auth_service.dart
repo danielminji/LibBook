@@ -1,11 +1,27 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Service responsible for handling user authentication with Firebase
+/// and managing user data in Firestore.
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Sign up with email and password
+  /// Registers a new user with the provided email, password, and username.
+  ///
+  /// Upon successful Firebase authentication, it also creates a corresponding
+  /// user document in Firestore via [createUserDocument].
+  ///
+  /// - [email]: The user's email address for registration.
+  /// - [password]: The user's chosen password.
+  /// - [username]: The user's chosen username.
+  ///
+  /// Returns a [UserCredential] object containing the user's information
+  /// upon successful registration.
+  ///
+  /// Throws a [FirebaseAuthException] if Firebase registration fails (e.g.,
+  /// email already in use, weak password). Other exceptions might occur
+  /// if Firestore operations fail.
   Future<UserCredential> registerWithEmailPassword({
     required String email,
     required String password,
@@ -27,7 +43,16 @@ class AuthService {
     }
   }
 
-  // Create user document in Firestore
+  /// Creates a user document in the Firestore 'users' collection.
+  ///
+  /// This document stores essential user information beyond Firebase Auth details.
+  ///
+  /// - [user]: The Firebase [User] object obtained after authentication.
+  /// - [role]: The role to assign to the user (e.g., 'user', 'admin').
+  /// - [username]: The username for the user.
+  ///
+  /// Initializes 'telegram_chat_id' to null.
+  /// Sets 'createdAt' and 'lastLogin' timestamps to the current time.
   Future<void> createUserDocument(User user, String role, String username) async {
     await _firestore.collection('users').doc(user.uid).set({
       'email': user.email,
@@ -39,7 +64,18 @@ class AuthService {
     });
   }
 
-  // Sign in with email and password
+  /// Signs in an existing user with their email and password.
+  ///
+  /// Updates the 'lastLogin' timestamp in the user's Firestore document
+  /// upon successful sign-in.
+  ///
+  /// - [email]: The user's email address.
+  /// - [password]: The user's password.
+  ///
+  /// Returns a [UserCredential] object if sign-in is successful.
+  ///
+  /// Throws a [FirebaseAuthException] for sign-in failures (e.g.,
+  /// invalid credentials, user not found).
   Future<UserCredential?> signInWithEmailPassword(String email, String password) async {
     try {
       UserCredential userCredential = await _auth.signInWithEmailAndPassword(
@@ -58,12 +94,19 @@ class AuthService {
     }
   }
 
-  // Sign out
+  /// Signs out the current Firebase user.
+  ///
+  /// This method calls Firebase Auth's `signOut` method.
   Future<void> signOut() async {
     await _auth.signOut();
   }
 
-  // Get user role
+  /// Retrieves the role of a user from their Firestore document.
+  ///
+  /// - [uid]: The unique ID of the user.
+  ///
+  /// Returns the user's role as a [String] if the document and role field exist,
+  /// otherwise returns `null`. Returns `null` also if any error occurs during fetching.
   Future<String?> getUserRole(String uid) async {
     try {
       DocumentSnapshot doc = await _firestore.collection('users').doc(uid).get();
@@ -76,7 +119,13 @@ class AuthService {
     }
   }
 
-  // Update Telegram chat ID
+  /// Updates the 'telegram_chat_id' field for a user in Firestore.
+  ///
+  /// - [userId]: The unique ID of the user whose Telegram chat ID is to be updated.
+  /// - [chatId]: The new Telegram chat ID to store.
+  ///
+  /// Throws a [FirebaseException] or other errors if the Firestore update fails,
+  /// which will be rethrown to the caller.
   Future<void> updateTelegramChatId(String userId, String chatId) async {
     try {
       await _firestore.collection('users').doc(userId).update({
@@ -89,7 +138,12 @@ class AuthService {
     }
   }
 
-  // Get user's Telegram Chat ID
+  /// Retrieves the 'telegram_chat_id' for a user from Firestore.
+  ///
+  /// - [userId]: The unique ID of the user.
+  ///
+  /// Returns the Telegram chat ID as a [String] if found, otherwise `null`.
+  /// Returns `null` if any error occurs during fetching.
   Future<String?> getUserTelegramChatId(String userId) async {
     try {
       DocumentSnapshot doc = await _firestore.collection('users').doc(userId).get();
@@ -107,6 +161,12 @@ class AuthService {
     }
   }
 
+  /// Retrieves a user's entire document from the Firestore 'users' collection.
+  ///
+  /// - [uid]: The unique ID of the user.
+  ///
+  /// Returns a [DocumentSnapshot] containing the user's data if the document exists.
+  /// Returns `null` if the document does not exist or an error occurs during fetching.
   Future<DocumentSnapshot?> getUserDocument(String uid) async {
     try {
       return await _firestore.collection('users').doc(uid).get();

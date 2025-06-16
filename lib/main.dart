@@ -13,6 +13,7 @@ import 'package:library_booking/pages/admin/admin_manage_bookings_page.dart';
 import 'package:library_booking/pages/admin/admin_manage_rooms_page.dart';
 import 'package:library_booking/pages/admin/admin_manage_announcements_page.dart';
 import 'package:library_booking/pages/admin/admin_view_feedback_page.dart';
+import 'package:library_booking/pages/admin/admin_qr_scanner_page.dart'; // Import the new page
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -103,6 +104,7 @@ class MyApp extends StatelessWidget {
         AdminManageRoomsPage.routeName: (context) => const AdminManageRoomsPage(),
         AdminManageAnnouncementsPage.routeName: (context) => const AdminManageAnnouncementsPage(),
         AdminViewFeedbackPage.routeName: (context) => const AdminViewFeedbackPage(),
+        AdminQrScannerPage.routeName: (context) => const AdminQrScannerPage(),
       },
     );
   }

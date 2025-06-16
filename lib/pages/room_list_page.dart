@@ -2,16 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:library_booking/services/room_service.dart'; // Import RoomService and Room model
 import 'package:library_booking/pages/room_detail_page.dart';
 
-
+/// A page that displays a list of currently active and bookable library rooms.
+///
+/// Users can view a summary of each room (name, capacity, amenities) and tap
+/// on a room to navigate to its [RoomDetailPage] for more information and booking options.
+/// Data is fetched and displayed using a [StreamBuilder] connected to [RoomService.getActiveRooms].
 class RoomListPage extends StatefulWidget {
+  /// Creates an instance of [RoomListPage].
   const RoomListPage({super.key});
-  // Ensure routeName matches what's used in UserHomePage or other navigation points
+
+  /// The named route for this page.
+  /// Used for navigation, e.g., from [UserHomePage].
   static const String routeName = '/room-list';
 
   @override
   State<RoomListPage> createState() => _RoomListPageState();
 }
 
+/// Manages the state for the [RoomListPage].
+///
+/// Initializes and holds the stream of active rooms from [RoomService].
 class _RoomListPageState extends State<RoomListPage> {
   final RoomService _roomService = RoomService();
   late Stream<List<Room>> _activeRoomsStream;
@@ -22,6 +32,11 @@ class _RoomListPageState extends State<RoomListPage> {
     _activeRoomsStream = _roomService.getActiveRooms();
   }
 
+  /// Builds the UI for the Room List Page.
+  ///
+  /// Displays a list of active rooms using a [StreamBuilder]. Each room is
+  /// presented as a tappable [Card] showing its name, capacity, and amenities.
+  /// Handles loading, error, and empty states for the room data stream.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -51,13 +66,11 @@ class _RoomListPageState extends State<RoomListPage> {
             itemBuilder: (context, index) {
               final room = rooms[index];
               return Card(
-                // Using theme.cardTheme for consistency
                 elevation: theme.cardTheme.elevation,
                 shape: theme.cardTheme.shape,
                 margin: theme.cardTheme.margin,
                 child: InkWell(
                   onTap: () {
-                    // Ensure RoomDetailPage exists and can accept roomId
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -67,7 +80,7 @@ class _RoomListPageState extends State<RoomListPage> {
                   },
                   borderRadius: theme.cardTheme.shape is RoundedRectangleBorder
                                 ? (theme.cardTheme.shape as RoundedRectangleBorder).borderRadius.resolve(Directionality.of(context))
-                                : BorderRadius.circular(12.0), // Default if not RoundedRectangleBorder
+                                : BorderRadius.circular(12.0),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(

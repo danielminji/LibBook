@@ -2,15 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:library_booking/services/auth_service.dart'; // Import AuthService
 import 'package:library_booking/pages/login_page.dart';    // For navigation
 import 'package:library_booking/pages/home_page.dart';      // For navigation
+import 'package:library_booking/pages/welcome_page.dart';  // For ModalRoute.withName in navigation
 
+/// A page that allows new users to sign up for an account.
+///
+/// Users can enter their desired username, email, and password to create a new
+/// account. Upon successful registration, they are navigated to the [UserHomePage].
+/// Provides an option to navigate to the [LoginPage] if the user already has an account.
 class SignUpPage extends StatefulWidget {
+  /// Creates an instance of [SignUpPage].
   const SignUpPage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/signup';
 
   @override
   State<SignUpPage> createState() => _SignUpPageState();
 }
 
+/// Manages the state for the [SignUpPage].
+///
+/// This includes handling form input for username, email, and password,
+/// validating these inputs, communicating with the [AuthService] for user
+/// registration, and managing loading/error states during the sign-up process.
 class _SignUpPageState extends State<SignUpPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _usernameController = TextEditingController();
@@ -21,15 +35,27 @@ class _SignUpPageState extends State<SignUpPage> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  final AuthService _authService = AuthService(); // Instantiate AuthService
+  final AuthService _authService = AuthService();
 
+  /// Attempts to register a new user with the provided details.
+  ///
+  /// Validates the form inputs (username, email, password). If valid, it calls the
+  /// [AuthService.registerWithEmailPassword] method.
+  /// On successful registration, it navigates to the [UserHomePage],
+  /// clearing the navigation stack up to the [WelcomePage.routeName].
+  ///
+  /// Manages `_isLoading` state to show a progress indicator and updates
+  /// `_errorMessage` to display feedback to the user in case of errors
+  /// (e.g., email already in use, weak password).
   Future<void> _signUpUser() async {
     if (_formKey.currentState!.validate()) {
       // Optional: Check if password and confirm password match
       // if (_passwordController.text != _confirmPasswordController.text) {
-      //   setState(() {
-      //     _errorMessage = 'Passwords do not match.';
-      //   });
+      //   if (mounted) {
+      //     setState(() {
+      //       _errorMessage = 'Passwords do not match.';
+      //     });
+      //   }
       //   return;
       // }
 
@@ -46,27 +72,30 @@ class _SignUpPageState extends State<SignUpPage> {
         );
 
         if (userCredential != null && userCredential.user != null) {
-          // Navigate to home page on successful signup
-          // Replace all routes below WelcomePage with UserHomePage
-          Navigator.of(context).pushNamedAndRemoveUntil(UserHomePage.routeName, ModalRoute.withName('/'));
+          if (mounted) {
+            Navigator.of(context).pushNamedAndRemoveUntil(UserHomePage.routeName, ModalRoute.withName(WelcomePage.routeName));
+          }
         } else {
           // This case should ideally not be reached if registerWithEmailPassword throws on failure.
-          setState(() {
-            _errorMessage = 'Sign up failed. Please try again.';
-          });
+          if (mounted) {
+            setState(() {
+              _errorMessage = 'Sign up failed. Please try again.';
+            });
+          }
         }
       } catch (e) {
-        // Handle Firebase Auth exceptions (e.g., email-already-in-use, weak-password)
         print('SignUp error: $e');
-        String displayMessage = 'An error occurred. Please try again.';
+        String displayMessage = 'An error occurred during sign up. Please try again.';
         if (e.toString().contains('email-already-in-use')) {
-          displayMessage = 'This email is already registered. Please login.';
+          displayMessage = 'This email is already registered. Please login or use a different email.';
         } else if (e.toString().contains('weak-password')) {
-          displayMessage = 'The password is too weak.';
+          displayMessage = 'The password is too weak. Please choose a stronger password.';
         }
-        setState(() {
-          _errorMessage = displayMessage;
-        });
+        if (mounted) {
+          setState(() {
+            _errorMessage = displayMessage;
+          });
+        }
       } finally {
         if (mounted) {
           setState(() {
@@ -86,6 +115,11 @@ class _SignUpPageState extends State<SignUpPage> {
     super.dispose();
   }
 
+  /// Builds the UI for the Sign Up Page.
+  ///
+  /// Features a form for username, email, and password input, a sign-up button,
+  /// and a link to the login page. Displays loading indicators
+  /// and error messages as appropriate.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -132,7 +166,7 @@ class _SignUpPageState extends State<SignUpPage> {
                     if (value == null || value.isEmpty) {
                       return 'Please enter a username';
                     }
-                    if (value.length < 3) {
+                    if (value.trim().length < 3) {
                       return 'Username must be at least 3 characters';
                     }
                     return null;
@@ -224,6 +258,8 @@ class _SignUpPageState extends State<SignUpPage> {
                 const SizedBox(height: 16),
                 TextButton(
                   onPressed: () {
+                    // Use popAndPushNamed if on signup, back should go to welcome, then login
+                    // Or just pushNamed if standard stack behavior is fine
                     Navigator.pushNamed(context, LoginPage.routeName);
                   },
                   child: Text(
