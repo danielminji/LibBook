@@ -3,27 +3,42 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart'; // For Clipboard
 import 'package:cloud_firestore/cloud_firestore.dart'; // Required for DocumentSnapshot
 import 'package:library_booking/services/auth_service.dart';
-import 'package:library_booking/services/calendar_service.dart'; // Import CalendarService
+import 'package:library_booking/services/calendar_service.dart';
 import 'package:library_booking/pages/welcome_page.dart'; // For logout
 
+/// User profile page.
+///
+/// Displays user information (username, email), allows updating Telegram Chat ID
+/// for notifications, and manages Cronofy calendar synchronization.
+/// Users can also log out from this page.
 class ProfilePage extends StatefulWidget {
+  /// Creates an instance of [ProfilePage].
   const ProfilePage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/profile';
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
+/// Manages the state for the [ProfilePage].
+///
+/// Handles fetching user data, updating Telegram chat ID, managing the
+/// Cronofy OAuth flow (simplified), checking Cronofy connection status,
+/// and user logout.
 class _ProfilePageState extends State<ProfilePage> {
   final AuthService _authService = AuthService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // Added for _disconnectCronofy direct action
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Instantiate CalendarService with credentials (these should ideally come from a config/DI)
+  // CalendarService is instantiated with client credentials.
+  // In a production app, these credentials should be securely managed,
+  // possibly through a configuration service or dependency injection.
   final CalendarService _calendarService = CalendarService(
-    clientId: "cKLSwjQNympUGok21LQuEp6DRF5tDARh", // User-provided
-    clientSecret: "CRN_YOI66tYVtltMOkQsxzxeCdWy7i8caDq3iv0Xzd", // User-provided
-    redirectUri: "com.smartlibrarybooker://oauth2redirect", // Agreed upon
+    clientId: "cKLSwjQNympUGok21LQuEp6DRF5tDARh",
+    clientSecret: "CRN_YOI66tYVtltMOkQsxzxeCdWy7i8caDq3iv0Xzd",
+    redirectUri: "com.smartlibrarybooker://oauth2redirect",
   );
 
   User? _currentUser;
@@ -31,9 +46,9 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _email;
   bool _isLoadingUserData = true;
   bool _isSavingTelegramId = false;
-  bool _isCronofyLoading = false; // For Cronofy operations
-  String? _cronofyStatus; // e.g., "Not Connected", "Connected: primary_calendar_name"
-  List<dynamic>? _cronofyCalendars; // List of user's calendars from Cronofy
+  bool _isCronofyLoading = false;
+  String? _cronofyStatus;
+  List<dynamic>? _cronofyCalendars;
 
   final TextEditingController _telegramChatIdController = TextEditingController();
   final TextEditingController _cronofyAuthCodeController = TextEditingController();
@@ -54,9 +69,17 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// Loads current user's data (username, email, Telegram chat ID) from Firestore.
+  ///
+  /// Uses [AuthService.getUserDocument] to fetch the user's document.
+  /// Updates state variables `_username`, `_email`, and populates
+  /// `_telegramChatIdController`. Shows a loading indicator during fetch.
   Future<void> _loadUserData() async {
     setState(() { _isLoadingUserData = true; });
-    if (_currentUser == null) return;
+    if (_currentUser == null) {
+       if (mounted) setState(() { _isLoadingUserData = false; });
+      return;
+    }
     try {
       DocumentSnapshot? userDoc = await _authService.getUserDocument(_currentUser!.uid);
       if (mounted && userDoc != null && userDoc.exists) {
@@ -67,7 +90,7 @@ class _ProfilePageState extends State<ProfilePage> {
           _telegramChatIdController.text = data['telegram_chat_id'] ?? '';
         });
       } else if (mounted) {
-         _email = _currentUser!.email; // Fallback
+         _email = _currentUser!.email; // Fallback if document is sparse
       }
     } catch (e) {
       print("Error loading user data: $e");
@@ -77,6 +100,10 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// Updates the user's Telegram Chat ID in Firestore.
+  ///
+  /// Calls [AuthService.updateTelegramChatId] and shows a [SnackBar] for feedback.
+  /// Manages `_isSavingTelegramId` loading state.
   Future<void> _updateTelegramChatId() async {
     if (_currentUser == null) return;
     setState(() { _isSavingTelegramId = true; });
@@ -84,12 +111,19 @@ class _ProfilePageState extends State<ProfilePage> {
       await _authService.updateTelegramChatId(_currentUser!.uid, _telegramChatIdController.text.trim());
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Telegram Chat ID updated!'), backgroundColor: Colors.green));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update: ${e.toString()}'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update Telegram Chat ID: ${e.toString()}'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() { _isSavingTelegramId = false; });
     }
   }
 
+  /// Checks and updates the Cronofy calendar synchronization status for the current user.
+  ///
+  /// Fetches Cronofy tokens using [CalendarService.getUserTokens]. If tokens exist,
+  /// it attempts to list calendars via [CalendarService.listCalendars] to confirm
+  /// connectivity and displays the name of a primary/suitable calendar.
+  /// Updates `_cronofyStatus` and `_cronofyCalendars` state variables.
+  /// Manages `_isCronofyLoading` state.
   Future<void> _checkCronofyStatus() async {
     if (_currentUser == null) return;
     setState(() { _isCronofyLoading = true; });
@@ -97,15 +131,15 @@ class _ProfilePageState extends State<ProfilePage> {
       Map<String, dynamic>? tokens = await _calendarService.getUserTokens(_currentUser!.uid);
       if (tokens != null && tokens['accessToken'] != null) {
         _cronofyCalendars = await _calendarService.listCalendars(_currentUser!.uid);
-        if (_cronofyCalendars != null && _cronofyCalendars!.isNotEmpty) {
+        if (mounted && _cronofyCalendars != null && _cronofyCalendars!.isNotEmpty) {
           var primaryCal = _cronofyCalendars!.firstWhere((cal) => cal['calendar_primary'] == true && cal['calendar_readonly'] == false && cal['calendar_deleted'] == false, orElse: () => _cronofyCalendars!.firstWhere((cal) => cal['calendar_readonly'] == false && cal['calendar_deleted'] == false, orElse: () => null));
           setState(() {
             _cronofyStatus = primaryCal != null ? "Connected: ${primaryCal['calendar_name']}" : "Connected (No suitable calendar found)";
           });
-        } else {
+        } else if (mounted) {
            setState(() { _cronofyStatus = "Connected (No calendars found or error)"; });
         }
-      } else {
+      } else if (mounted) {
         setState(() { _cronofyStatus = "Not Connected"; _cronofyCalendars = null; });
       }
     } catch (e) {
@@ -116,6 +150,11 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// Initiates the Cronofy OAuth 2.0 authorization flow (simplified).
+  ///
+  /// Generates the authorization URL using [CalendarService.getAuthorizationUrl]
+  /// and updates `_cronofyAuthorizationUrl` to display it to the user.
+  /// The user is expected to manually open this URL and authorize the application.
   void _initiateCronofyOAuth() {
     if (_currentUser == null) return;
     String state = DateTime.now().millisecondsSinceEpoch.toString();
@@ -125,8 +164,17 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
+  /// Submits the Cronofy authorization code (obtained by the user externally)
+  /// to exchange it for access and refresh tokens.
+  ///
+  /// Calls [CalendarService.exchangeCodeForTokens] and then [CalendarService.storeUserTokens].
+  /// Clears the auth code input and refreshes the Cronofy status on success.
+  /// Manages `_isCronofyLoading` state and shows [SnackBar] feedback.
   Future<void> _submitCronofyAuthCode() async {
-    if (_currentUser == null || _cronofyAuthCodeController.text.isEmpty) return;
+    if (_currentUser == null || _cronofyAuthCodeController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please paste the authorization code first.'), backgroundColor: Colors.orange));
+      return;
+    }
     setState(() { _isCronofyLoading = true; });
     try {
       Map<String, dynamic>? tokenData = await _calendarService.exchangeCodeForTokens(_cronofyAuthCodeController.text.trim());
@@ -138,9 +186,11 @@ class _ProfilePageState extends State<ProfilePage> {
           tokenData['expiryDateTime'],
         );
         _cronofyAuthCodeController.clear();
-        setState(() { _cronofyAuthorizationUrl = null; });
-        await _checkCronofyStatus();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Calendar connected successfully!'), backgroundColor: Colors.green));
+        if (mounted) {
+          setState(() { _cronofyAuthorizationUrl = null; });
+          await _checkCronofyStatus();
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Calendar connected successfully!'), backgroundColor: Colors.green));
+        }
       } else {
         throw Exception("Failed to exchange code for tokens or token data incomplete.");
       }
@@ -152,13 +202,16 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// Disconnects the user's Cronofy calendar synchronization.
+  ///
+  /// This implementation deletes the stored OAuth tokens from Firestore.
+  /// A more complete solution would also call Cronofy's token revocation endpoint.
+  /// Refreshes Cronofy status and shows a [SnackBar].
   Future<void> _disconnectCronofy() async {
      if (_currentUser == null) return;
-      // For Cronofy, true disconnection involves revoking the token via their API.
-      // This is an advanced step not covered by the current CalendarService.
-      // For now, we just delete local tokens. A 'real' app should call Cronofy's revoke endpoint.
       print("Attempting to delete local Cronofy tokens for user ${_currentUser!.uid}");
       try {
+        // This directly accesses Firestore. In a stricter architecture, this might be a service method.
         await _firestore.collection('users').doc(_currentUser!.uid).collection('cronofy_tokens').doc('user_token').delete();
         print("Local Cronofy tokens deleted for user ${_currentUser!.uid}");
         await _checkCronofyStatus();
@@ -169,7 +222,7 @@ class _ProfilePageState extends State<ProfilePage> {
       }
   }
 
-
+  /// Logs out the current user and navigates to the [WelcomePage].
   Future<void> _logout() async {
     await _authService.signOut();
     Navigator.of(context).pushNamedAndRemoveUntil(WelcomePage.routeName, (Route<dynamic> route) => false);
@@ -182,6 +235,10 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
+  /// Builds the UI for the Profile Page.
+  ///
+  /// Displays user information, Telegram Chat ID input, Cronofy calendar sync controls,
+  /// and a logout button. Handles loading states for user data and Cronofy operations.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -195,7 +252,7 @@ class _ProfilePageState extends State<ProfilePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Profile'),
-        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: _logout)],
+        actions: [IconButton(icon: const Icon(Icons.logout), tooltip: 'Logout', onPressed: _logout)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -309,6 +366,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Helper to build section titles consistently.
   Widget _buildSectionTitle(ThemeData theme, String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
@@ -316,6 +374,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// Helper to build rows for displaying user information.
   Widget _buildInfoRow(ThemeData theme, IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),

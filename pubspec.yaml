@@ -46,6 +46,9 @@ dependencies:
   # Internationalization for date formatting, etc.
   intl: ^0.20.2
 
+  # Mobile Scanner for QR codes
+  mobile_scanner: ^7.0.1
+
   # QR code generation
   qr_flutter: ^4.1.0
 

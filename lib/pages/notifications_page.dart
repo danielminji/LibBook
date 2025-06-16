@@ -2,17 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:library_booking/services/notification_service.dart' as app_notification; // Aliased to avoid conflict with Flutter's Notification
+
 // Import MyBookingsPage or other relevant pages for navigation if needed
 // import 'package:library_booking/pages/my_bookings_page.dart';
 
+/// A page that displays a list of notifications for the currently logged-in user.
+///
+/// Notifications are fetched using [app_notification.NotificationService] and displayed
+/// in a list, with unread notifications visually distinguished. Users can mark
+/// individual notifications as read by tapping them, or mark all as read using an
+/// AppBar action.
 class NotificationsPage extends StatefulWidget {
+  /// Creates an instance of [NotificationsPage].
   const NotificationsPage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/notifications';
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
+/// Manages the state for the [NotificationsPage].
+///
+/// This includes initializing and holding the stream of user notifications,
+/// and handling actions such as marking notifications as read.
 class _NotificationsPageState extends State<NotificationsPage> {
   final app_notification.NotificationService _notificationService = app_notification.NotificationService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
@@ -29,58 +43,78 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
   }
 
+  /// Loads the stream of notifications for the current user.
+  ///
+  /// Initializes [_notificationsStream] by calling
+  /// [app_notification.NotificationService.getUserNotifications].
+  /// This stream provides all notifications (read and unread) for the user,
+  /// ordered by timestamp.
   void _loadNotifications() {
     if (_currentUser == null) return;
-    // Get all notifications, read and unread, ordered by timestamp
-    // The UI will differentiate them.
     setState(() {
       _notificationsStream = _notificationService.getUserNotifications(_currentUser!.uid);
     });
   }
 
+  /// Marks a specific notification as read.
+  ///
+  /// Calls [app_notification.NotificationService.markAsRead] for the given [notificationId].
+  /// Displays a [SnackBar] if an error occurs. The UI updates via the [StreamBuilder].
+  ///
+  /// - [notificationId]: The ID of the notification to mark as read.
   Future<void> _markAsRead(String notificationId) async {
     try {
       await _notificationService.markAsRead(notificationId);
-      // StreamBuilder will rebuild, no explicit setState needed here to refresh list UI for this item.
-      // However, if you have local state like an unread count badge elsewhere, update it.
     } catch (e) {
-      print("Error marking notification as read: $e");
+      print("Error marking notification $notificationId as read: $e");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to mark as read: ${e.toString()}"), backgroundColor: Colors.red));
     }
   }
 
+  /// Marks all unread notifications for the current user as read.
+  ///
+  /// Calls [app_notification.NotificationService.markAllAsRead].
+  /// Displays a [SnackBar] for feedback or errors.
   Future<void> _markAllAsRead() async {
     if (_currentUser == null) return;
     try {
       await _notificationService.markAllAsRead(_currentUser!.uid);
-      // StreamBuilder will update the list.
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('All notifications marked as read.'), backgroundColor: Colors.green));
     } catch (e) {
-      print("Error marking all as read: $e");
+      print("Error marking all notifications as read: $e");
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to mark all as read: ${e.toString()}"), backgroundColor: Colors.red));
     }
   }
 
+  /// Handles the tap action on a notification list item.
+  ///
+  /// If the tapped [notification] is unread, it calls [_markAsRead].
+  /// Includes placeholder logic for potential navigation based on `notification.type`
+  /// and `notification.relatedEntityId` (e.g., navigating to a specific booking).
+  ///
+  /// - [notification]: The [app_notification.Notification] object that was tapped.
   void _handleNotificationTap(app_notification.Notification notification) {
-    // Mark as read when tapped
     if (!notification.isRead) {
       _markAsRead(notification.notificationId);
     }
 
-    // Optional: Navigate if relatedEntityId exists
     if (notification.relatedEntityId != null && notification.relatedEntityId!.isNotEmpty) {
-      if (notification.type == 'booking_status_update' || notification.type == 'new_booking_admin') { // Assuming types
-        // Potentially navigate to MyBookingsPage and perhaps highlight the specific booking
-        // For now, just show a message.
-        // Navigator.pushNamed(context, MyBookingsPage.routeName, arguments: {'bookingId': notification.relatedEntityId});
+      if (notification.type == 'booking_status_update' || notification.type == 'new_booking_admin') {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Tapped notification related to booking ID: ${notification.relatedEntityId}. Navigation pending.')),
         );
+        // Example navigation (if MyBookingsPage and arguments are set up):
+        // Navigator.pushNamed(context, MyBookingsPage.routeName, arguments: {'bookingId': notification.relatedEntityId});
       }
-      // Add other navigation logic based on notification.type
+      // TODO: Add other navigation logic based on notification.type if necessary
     }
   }
 
+  /// Builds the UI for the Notifications Page.
+  ///
+  /// Displays a list of user notifications using a [StreamBuilder].
+  /// Each notification is presented in a [Card] with visual cues for read/unread status.
+  /// An AppBar action allows marking all notifications as read.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -92,9 +126,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
-          // Check if there are any unread notifications to enable the button
-          // This requires a separate stream or check, or iterating through current snapshot.
-          // For simplicity in this step, always show. Can be enhanced.
           IconButton(
             icon: const Icon(Icons.done_all),
             tooltip: 'Mark all as read',
@@ -124,7 +155,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               return Card(
                 elevation: theme.cardTheme.elevation,
                 shape: theme.cardTheme.shape,
-                margin: theme.cardTheme.margin?.copyWith(top: 8, bottom: 0), // Add top margin
+                margin: theme.cardTheme.margin?.copyWith(top: 8, bottom: 0),
                 color: isUnread ? theme.primaryColor.withOpacity(0.05) : theme.cardColor,
                 child: ListTile(
                   leading: Icon(

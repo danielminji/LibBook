@@ -5,14 +5,27 @@ import 'package:library_booking/pages/home_page.dart';    // For UserHomePage na
 import 'package:library_booking/pages/admin/admin_home_page.dart'; // For AdminHomePage navigation
 import 'package:library_booking/pages/welcome_page.dart'; // For ModalRoute.withName
 
+/// A page that allows users to log in to the application.
+///
+/// Users can enter their email and password to authenticate. Upon successful
+/// authentication, they are navigated to either the [UserHomePage] or
+/// [AdminHomePage] based on their role. Provides an option to navigate
+/// to the [SignUpPage] for new users.
 class LoginPage extends StatefulWidget {
+  /// Creates an instance of [LoginPage].
   const LoginPage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/login';
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
+/// Manages the state for the [LoginPage].
+///
+/// This includes handling form input, validation, communicating with the
+/// [AuthService] for authentication, and managing loading/error states.
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
@@ -20,8 +33,20 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  final AuthService _authService = AuthService(); // Instantiate AuthService
+  final AuthService _authService = AuthService();
 
+  /// Attempts to sign in the user with the provided email and password.
+  ///
+  /// Validates the form inputs. If valid, it calls the
+  /// [AuthService.signInWithEmailPassword] method.
+  /// On successful authentication, it fetches the user's role using
+  /// [AuthService.getUserRole] and navigates to the appropriate home page
+  /// ([UserHomePage] or [AdminHomePage]), clearing the navigation stack
+  /// up to the [WelcomePage.routeName].
+  ///
+  /// Manages `_isLoading` state to show a progress indicator and updates
+  /// `_errorMessage` to display feedback to the user in case of errors.
+  /// Specific error messages are shown for invalid credentials.
   Future<void> _loginUser() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
@@ -36,10 +61,9 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (userCredential != null && userCredential.user != null) {
-          // Get user role
           String? userRole = await _authService.getUserRole(userCredential.user!.uid);
 
-          if (mounted) { // Check if widget is still in the tree
+          if (mounted) {
             if (userRole == 'admin') {
               Navigator.of(context).pushNamedAndRemoveUntil(AdminHomePage.routeName, ModalRoute.withName(WelcomePage.routeName));
             } else {
@@ -47,20 +71,22 @@ class _LoginPageState extends State<LoginPage> {
             }
           }
         } else {
-          // Should not happen if signInWithEmailPassword throws an error on failure
-          setState(() {
-            _errorMessage = 'Login failed. Please try again.';
-          });
+          // This case should ideally not be reached if signInWithEmailPassword throws on failure.
+          if (mounted) {
+            setState(() {
+              _errorMessage = 'Login failed. Please try again.';
+            });
+          }
         }
       } catch (e) {
-        // Handle Firebase Auth exceptions (e.g., user-not-found, wrong-password)
-        // You might want to parse specific FirebaseException codes for better messages
         print('Login error: $e');
-        setState(() {
-          _errorMessage = e.toString().contains('INVALID_LOGIN_CREDENTIALS')
-              ? 'Invalid email or password.'
-              : 'An error occurred. Please try again.';
-        });
+        if (mounted) {
+          setState(() {
+            _errorMessage = e.toString().contains('INVALID_LOGIN_CREDENTIALS')
+                ? 'Invalid email or password.'
+                : 'An error occurred during login. Please try again.';
+          });
+        }
       } finally {
         if (mounted) {
           setState(() {
@@ -78,13 +104,18 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  /// Builds the UI for the Login Page.
+  ///
+  /// Features a form for email and password input, a login button,
+  /// and a link to the sign-up page. Displays loading indicators
+  /// and error messages as appropriate.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Login'),
-        automaticallyImplyLeading: true, // Show back button
+        automaticallyImplyLeading: true, // Shows back button if navigable
       ),
       body: Center(
         child: SingleChildScrollView(

@@ -10,43 +10,56 @@ import 'package:library_booking/services/booking_service.dart' show Booking;
 import 'package:library_booking/services/announcement_service.dart' show Announcement;
 
 
-// Dummy placeholder pages to allow navigation to be set up
+// Dummy placeholder pages to allow navigation to be set up.
 // These would be replaced by actual page implementations in later steps.
+// These are not documented as they are not part of the main page logic.
 class RoomListPage extends StatelessWidget {
   const RoomListPage({super.key});
-  static const String routeName = '/room-list'; // Define routeName for main.dart if needed later
+  static const String routeName = '/room-list';
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Browse Rooms')), body: const Center(child: Text('Room List Page')));
 }
 class MyBookingsPage extends StatelessWidget {
   const MyBookingsPage({super.key});
-  static const String routeName = '/my-bookings'; // Define routeName
+  static const String routeName = '/my-bookings';
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('My Bookings')), body: const Center(child: Text('My Bookings Page')));
 }
 class FeedbackPage extends StatelessWidget {
   const FeedbackPage({super.key});
-  static const String routeName = '/feedback'; // Define routeName
+  static const String routeName = '/feedback';
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Submit Feedback')), body: const Center(child: Text('Feedback Page')));
 }
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
-  static const String routeName = '/profile'; // Define routeName
+  static const String routeName = '/profile';
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('My Profile')), body: const Center(child: Text('Profile Page')));
 }
 class NotificationsPage extends StatelessWidget {
   const NotificationsPage({super.key});
-  static const String routeName = '/notifications'; // Define routeName
+  static const String routeName = '/notifications';
   @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Notifications')), body: const Center(child: Text('Notifications Page')));
 }
 
 
+/// The main home page for authenticated users.
+///
+/// Displays a personalized welcome message, navigation options to key app features,
+/// a summary of upcoming bookings, and recent announcements.
+/// Also provides access to user profile, notifications, and logout functionality.
 class UserHomePage extends StatefulWidget {
+  /// Creates an instance of [UserHomePage].
   const UserHomePage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/home';
 
   @override
   State<UserHomePage> createState() => _UserHomePageState();
 }
 
+/// Manages the state for the [UserHomePage].
+///
+/// Fetches and displays user-specific data such as username, upcoming bookings,
+/// and general announcements. Handles user interactions like navigation and logout.
 class _UserHomePageState extends State<UserHomePage> {
   final AuthService _authService = AuthService();
   final BookingService _bookingService = BookingService();
@@ -66,11 +79,15 @@ class _UserHomePageState extends State<UserHomePage> {
     _loadInitialData();
   }
 
+  /// Loads the current user's data, primarily their username.
+  ///
+  /// Fetches the user document from Firestore using [AuthService.getUserDocument].
+  /// Updates the [_username] state variable. Falls back to the user's email if
+  /// the username is not found in the document.
   Future<void> _loadUserData() async {
     if (_currentUser != null) {
       DocumentSnapshot? userDoc = await _authService.getUserDocument(_currentUser!.uid);
       if (mounted && userDoc != null && userDoc.exists) {
-        // Make sure to cast data to Map<String, dynamic> to use .get
         Map<String, dynamic>? userData = userDoc.data() as Map<String, dynamic>?;
         setState(() {
           _username = userData?['username'] ?? _currentUser!.email;
@@ -83,6 +100,15 @@ class _UserHomePageState extends State<UserHomePage> {
     }
   }
 
+  /// Loads initial data required for the home page dashboard.
+  ///
+  /// This includes fetching the user's upcoming approved bookings and active announcements.
+  /// It uses the `.first` property on the streams to convert them into [Future]s
+  /// suitable for use with [FutureBuilder]s, effectively taking only the first
+  /// emitted list from each stream.
+  ///
+  /// Also triggers a `setState` after these futures complete to ensure the UI
+  /// rebuilds if data was fetched very quickly (though `FutureBuilder`s handle this robustly).
   void _loadInitialData() {
     if (_currentUser != null) {
       _upcomingBookingsFuture = _bookingService.getUserBookings(_currentUser!.uid)
@@ -96,19 +122,24 @@ class _UserHomePageState extends State<UserHomePage> {
     }
     _announcementsFuture = _announcementService.getActiveAnnouncements().first;
 
-    // Rebuild widget if data loading completes after initial build
-    // This is more robustly handled by FutureBuilders checking connectionState
-    // but ensures setState is called if data comes back quickly.
     Future.wait([_upcomingBookingsFuture, _announcementsFuture]).then((_) {
       if (mounted) setState(() {});
     });
   }
 
+  /// Logs out the current user and navigates to the [WelcomePage].
+  ///
+  /// Clears the navigation stack to prevent returning to authenticated pages.
   Future<void> _logout() async {
     await _authService.signOut();
     Navigator.of(context).pushNamedAndRemoveUntil(WelcomePage.routeName, (Route<dynamic> route) => false);
   }
 
+  /// Builds the UI for the User Home Page.
+  ///
+  /// Displays a dashboard with a welcome message, navigation cards,
+  /// upcoming bookings, recent announcements, and a feedback button.
+  /// Includes a [RefreshIndicator] for pull-to-refresh functionality.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -118,32 +149,34 @@ class _UserHomePageState extends State<UserHomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications),
+            tooltip: 'Notifications',
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsPage()));
             },
           ),
           IconButton(
             icon: const Icon(Icons.account_circle),
+            tooltip: 'My Profile',
             onPressed: () {
                Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfilePage()));
             },
           ),
           IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
             onPressed: _logout,
           ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          // Implement pull-to-refresh logic
           setState(() {
-            _loadInitialData(); // Reloads futures for bookings and announcements
-            _loadUserData();    // Reloads user data like username
+            _loadInitialData();
+            _loadUserData();
           });
         },
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(), // Ensures scroll even if content is small
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -187,6 +220,7 @@ class _UserHomePageState extends State<UserHomePage> {
     );
   }
 
+  /// Builds the main navigation section with tappable cards.
   Widget _buildNavigationSection(BuildContext context, ThemeData theme) {
     return GridView.count(
       crossAxisCount: 2,
@@ -213,6 +247,7 @@ class _UserHomePageState extends State<UserHomePage> {
     );
   }
 
+  /// Builds a single tappable navigation card.
   Widget _buildNavCard(BuildContext context, {required IconData icon, required String label, ThemeData? theme, VoidCallback? onTap}) {
     return Card(
       elevation: theme?.cardTheme.elevation ?? 2.0,
@@ -232,11 +267,13 @@ class _UserHomePageState extends State<UserHomePage> {
     );
   }
 
+  /// Builds the section displaying upcoming approved bookings.
+  /// Uses a [FutureBuilder] to handle asynchronous data loading.
   Widget _buildUpcomingBookingsSection() {
     return FutureBuilder<List<Booking>>(
       future: _upcomingBookingsFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && _username == null) { // Also wait for username
+        if (snapshot.connectionState == ConnectionState.waiting && _username == null) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
@@ -254,7 +291,7 @@ class _UserHomePageState extends State<UserHomePage> {
             final booking = bookings[index];
             return Card(
               child: ListTile(
-                title: Text('Room: ${booking.roomId}'),
+                title: Text('Room: ${booking.roomId}'), // Consider fetching room name for better display
                 subtitle: Text('${booking.date.toLocal().toString().split(' ')[0]} at ${booking.timeSlot}'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
@@ -268,6 +305,8 @@ class _UserHomePageState extends State<UserHomePage> {
     );
   }
 
+  /// Builds the section displaying active announcements.
+  /// Uses a [FutureBuilder] to handle asynchronous data loading.
   Widget _buildAnnouncementsSection() {
     return FutureBuilder<List<Announcement>>(
       future: _announcementsFuture,
@@ -292,6 +331,7 @@ class _UserHomePageState extends State<UserHomePage> {
               child: ListTile(
                 title: Text(announcement.title, style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text(announcement.message, maxLines: 2, overflow: TextOverflow.ellipsis),
+                // Could add onTap to navigate to a full announcement view if desired
               ),
             );
           },

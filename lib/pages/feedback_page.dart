@@ -4,25 +4,35 @@ import 'package:intl/intl.dart';
 import 'package:library_booking/services/feedback_service.dart' as app_feedback; // Aliased
 import 'package:library_booking/services/auth_service.dart'; // To get user details if needed for display
 
+/// A page where users can submit feedback about the application or services,
+/// and view their previously submitted feedback items along with their status.
 class FeedbackPage extends StatefulWidget {
+  /// Creates an instance of [FeedbackPage].
   const FeedbackPage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/feedback';
 
   @override
   State<FeedbackPage> createState() => _FeedbackPageState();
 }
 
+/// Manages the state for the [FeedbackPage].
+///
+/// This includes handling the feedback submission form, loading and displaying
+/// the user's past feedback, and interacting with [app_feedback.FeedbackService].
 class _FeedbackPageState extends State<FeedbackPage> {
   final app_feedback.FeedbackService _feedbackService = app_feedback.FeedbackService();
-  final AuthService _authService = AuthService(); // If we need to display username from Firestore doc
+  // AuthService might be used in the future to fetch more detailed user info for display.
+  // final AuthService _authService = AuthService();
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
 
   User? _currentUser;
-  // String? _username; // For display purposes if fetched - Not used in this version
+  // String? _username; // Currently not used, but could be fetched for display.
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _messageController = TextEditingController();
-  String? _selectedCategory; // Can be null if no category is chosen
+  String? _selectedCategory;
   final List<String> _feedbackCategories = ['General', 'Bug Report', 'Suggestion', 'Room Issue', 'Other'];
 
   bool _isSubmitting = false;
@@ -33,25 +43,30 @@ class _FeedbackPageState extends State<FeedbackPage> {
     super.initState();
     _currentUser = _firebaseAuth.currentUser;
     if (_currentUser != null) {
-      _loadUserDataAndFeedback();
+      _loadUserFeedback();
     }
   }
 
-  Future<void> _loadUserDataAndFeedback() async {
+  /// Loads the stream of feedback submitted by the current user.
+  ///
+  /// Initializes [_userFeedbackStream] by calling
+  /// [app_feedback.FeedbackService.getFeedbackByUser].
+  Future<void> _loadUserFeedback() async { // Renamed for clarity
     if (_currentUser == null) return;
-    // Optionally load username if you want to display it or ensure it's up-to-date
-    // DocumentSnapshot? userDoc = await _authService.getUserDocument(_currentUser!.uid);
-    // if (mounted && userDoc != null && userDoc.exists) {
-    //   setState(() { _username = userDoc.get('username'); });
-    // }
     setState(() {
       _userFeedbackStream = _feedbackService.getFeedbackByUser(_currentUser!.uid);
     });
   }
 
+  /// Submits the user's feedback to the [app_feedback.FeedbackService].
+  ///
+  /// Validates the form. If valid, it ensures a user is logged in, then calls
+  /// [app_feedback.FeedbackService.submitFeedback]. Manages `_isSubmitting` state
+  /// for loading indication and shows a [SnackBar] for success or failure.
+  /// Clears the form fields upon successful submission.
   Future<void> _submitFeedback() async {
     if (_currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You must be logged in to submit feedback.'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You must be logged in to submit feedback.'), backgroundColor: Colors.red));
       return;
     }
     if (_formKey.currentState!.validate()) {
@@ -59,7 +74,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
       try {
         await _feedbackService.submitFeedback(
           userId: _currentUser!.uid,
-          userEmail: _currentUser!.email ?? 'N/A', // Firebase Auth email
+          userEmail: _currentUser!.email ?? 'N/A',
           message: _messageController.text.trim(),
           category: _selectedCategory,
         );
@@ -67,7 +82,6 @@ class _FeedbackPageState extends State<FeedbackPage> {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Feedback submitted successfully!'), backgroundColor: Colors.green));
           _messageController.clear();
           setState(() { _selectedCategory = null; });
-          // No explicit refresh of _userFeedbackStream needed due to StreamBuilder
         }
       } catch (e) {
         if (mounted) {
@@ -87,6 +101,11 @@ class _FeedbackPageState extends State<FeedbackPage> {
     super.dispose();
   }
 
+  /// Builds the UI for the Feedback Page.
+  ///
+  /// Features a form for submitting new feedback (category and message) and
+  /// a list displaying the user's previously submitted feedback items with their status.
+  /// Handles loading and error states for the feedback list.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -103,7 +122,6 @@ class _FeedbackPageState extends State<FeedbackPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            // Feedback Submission Form
             Text('Send us your thoughts', style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.secondary)),
             const SizedBox(height: 8),
             Card(
@@ -171,14 +189,12 @@ class _FeedbackPageState extends State<FeedbackPage> {
             ),
             const SizedBox(height: 30),
 
-            // User's Past Feedback Section
             Text('Your Submitted Feedback', style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.secondary)),
             const SizedBox(height: 8),
             StreamBuilder<List<app_feedback.Feedback>>(
               stream: _userFeedbackStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting && _userFeedbackStream != null) {
-                  // Show loader only if stream is initialized and waiting
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
@@ -188,7 +204,6 @@ class _FeedbackPageState extends State<FeedbackPage> {
                 if (feedbackList == null || feedbackList.isEmpty) {
                   return const Text('You have not submitted any feedback yet.');
                 }
-                // Sort by timestamp descending (newest first)
                 feedbackList.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
                 return ListView.builder(
@@ -215,7 +230,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
                                const Text('Status: Pending Review', style: TextStyle(color: Colors.orange, fontStyle: FontStyle.italic, fontSize: 12)),
                           ],
                         ),
-                        isThreeLine: true, // Adjust based on content
+                        isThreeLine: true,
                       ),
                     );
                   },
