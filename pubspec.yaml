@@ -32,13 +32,13 @@ dependencies:
     sdk: flutter
     
   # Firebase core dependency
-  firebase_core: ^2.17.1
+  firebase_core: ^3.14.0
 
   # Firebase Firestore dependency
-  cloud_firestore: ^4.10.0
+  cloud_firestore: ^5.6.9
     
   # Firebase Auth dependency
-  firebase_auth: ^4.17.4
+  firebase_auth: ^5.6.0
 
   # HTTP package for making HTTP requests
   http: ^1.4.0
