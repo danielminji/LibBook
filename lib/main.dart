@@ -68,7 +68,7 @@ class MyApp extends StatelessWidget {
             ),
           ),
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 2.0, // Subtle shadow for cards
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12), // Rounded corners for cards

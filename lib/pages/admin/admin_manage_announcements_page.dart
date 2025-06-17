@@ -119,7 +119,7 @@ class _AdminManageAnnouncementsPageState extends State<AdminManageAnnouncementsP
               return Card(
                 elevation: theme.cardTheme.elevation,
                 shape: theme.cardTheme.shape,
-                margin: theme.cardTheme.margin?.copyWith(top: 8, bottom: 0),
+                margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
                 color: announcement.isActive ? theme.cardColor : Colors.grey[300],
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
