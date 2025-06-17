@@ -2,24 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart'; // Import the package
 import 'package:library_booking/services/booking_service.dart';
 import 'package:library_booking/services/room_service.dart'; // For room name
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart'; // For date formatting
 
+/// Admin page for scanning QR codes to verify and check-in bookings.
+///
+/// This page utilizes the `mobile_scanner` package to access the device camera
+/// and detect QR codes. Upon successful detection of a booking ID, it fetches
+/// booking details and room information using [BookingService] and [RoomService].
+/// It then displays these details and provides an option for admins to (simulate)
+/// a check-in for "Approved" bookings.
+///
+/// **Note on Permissions:** Native platform setup for camera permissions is required
+/// for this page to function correctly (e.g., `android.permission.CAMERA` on Android
+/// and `NSCameraUsageDescription` in `Info.plist` on iOS). This setup is assumed
+/// to be handled outside this Dart code.
 class AdminQrScannerPage extends StatefulWidget {
+  /// Creates an instance of [AdminQrScannerPage].
   const AdminQrScannerPage({super.key});
+
+  /// The named route for this page.
   static const String routeName = '/admin/scan-qr';
 
   @override
   State<AdminQrScannerPage> createState() => _AdminQrScannerPageState();
 }
 
+/// Manages the state for the [AdminQrScannerPage].
+///
+/// This includes controlling the [MobileScannerController], handling barcode detection,
+/// fetching and displaying booking details or error messages, and managing UI state
+/// (e.g., loading indicators, scanned data display).
 class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
   final BookingService _bookingService = BookingService();
-  final RoomService _roomService = RoomService(); // For fetching room name
-  MobileScannerController _scannerController = MobileScannerController(
-    // Facing can be front or back, default is back
-    // detectionSpeed: DetectionSpeed.normal, // default
-    // detectionTimeoutMs: 250, // default
-  );
+  final RoomService _roomService = RoomService();
+  final MobileScannerController _scannerController = MobileScannerController();
+
   bool _isProcessingScan = false;
   Booking? _scannedBooking;
   String? _scannedRoomName;
@@ -28,12 +45,21 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
   @override
   void initState() {
     super.initState();
-    // Optionally, request camera permission here using a package like permission_handler
-    // For this subtask, we assume permissions are handled or will be added by the developer.
+    // Camera permission handling is typically done before navigating to this page
+    // or using a package like `permission_handler` upon page load.
+    // For this subtask, we assume permissions are granted or will be prompted by the OS.
   }
 
+  /// Callback invoked by [MobileScanner] when one or more barcodes are detected.
+  ///
+  /// Processes the first valid barcode's raw value as a potential booking ID.
+  /// Stops the scanner to prevent continuous scanning, sets a processing state,
+  /// and then calls [_fetchBookingDetails] to retrieve information for the scanned ID.
+  ///
+  /// - [capture]: An object containing the list of detected [Barcode] objects and
+  ///   potentially the image data from which the barcodes were detected.
   void _handleBarcodeDetect(BarcodeCapture capture) {
-    if (_isProcessingScan) return; // Don't process multiple times quickly
+    if (_isProcessingScan) return;
 
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
@@ -46,70 +72,87 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
         _scannedRoomName = null;
         _scanErrorMessage = null;
       });
-      // It's important to stop the camera *before* potentially showing dialogs or navigating
-      // to prevent issues if the camera is still active in the background.
       _scannerController.stop();
 
       _fetchBookingDetails(scannedBookingId);
     }
   }
 
+  /// Fetches booking details based on the scanned [bookingId].
+  ///
+  /// Uses [BookingService.getBookingDetails] and [RoomService.getRoom] (for room name).
+  /// Updates the state with the fetched [Booking] object and room name, or an error message
+  /// if the booking is not found or an error occurs.
+  ///
+  /// - [bookingId]: The booking ID obtained from the scanned QR code.
   Future<void> _fetchBookingDetails(String bookingId) async {
     try {
       Booking? booking = await _bookingService.getBookingDetails(bookingId);
-      if (booking != null) {
-        String roomName = booking.roomId; // Fallback
+      if (mounted && booking != null) {
+        String roomName = booking.roomId; // Fallback to ID
         try {
           Room? room = await _roomService.getRoom(booking.roomId);
           if (room != null) roomName = room.name;
-        } catch (e) { /* ignore room name fetch error, use ID */ }
+        } catch (e) { print("Error fetching room name for ${booking.roomId}: $e"); }
 
-        if (mounted) {
-          setState(() {
-            _scannedBooking = booking;
-            _scannedRoomName = roomName;
-          });
-        }
-      } else {
-        if (mounted) setState(() => _scanErrorMessage = 'Booking ID "$bookingId" not found.');
+        setState(() {
+          _scannedBooking = booking;
+          _scannedRoomName = roomName;
+        });
+      } else if (mounted) {
+        setState(() => _scanErrorMessage = 'Booking ID "$bookingId" not found.');
       }
     } catch (e) {
-      if (mounted) setState(() => _scanErrorMessage = 'Error fetching booking: ${e.toString()}');
+      if (mounted) setState(() => _scanErrorMessage = 'Error fetching booking details: ${e.toString()}');
     } finally {
       if (mounted) setState(() => _isProcessingScan = false);
-      // Camera is stopped, user can choose to rescan.
     }
   }
 
+  /// Resets the scanner state to allow for a new QR code scan.
+  ///
+  /// Clears any previously scanned booking details or error messages,
+  /// sets `_isProcessingScan` to false, and restarts the camera scanner
+  /// using [_scannerController.start()]. Includes error handling for camera restart.
   void _resetScanner() {
     setState(() {
         _scannedBooking = null;
         _scannedRoomName = null;
         _scanErrorMessage = null;
-        _isProcessingScan = false; // Allow new scans
+        _isProcessingScan = false;
     });
-    // Check if controller is disposed or camera is already active before starting
-    if (_scannerController.isStarting || mounted == false) return;
-
-    // Re-initialize controller if it was disposed or to ensure fresh state
-    // However, mobile_scanner typically handles restart well.
-    // If issues occur, full re-initialization might be needed:
-    // _scannerController.dispose();
-    // _scannerController = MobileScannerController();
-
-    _scannerController.start();
+    if (mounted) {
+      try {
+        _scannerController.start();
+      } catch (e) {
+        print("Error restarting scanner: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Error restarting camera. Please try again.'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
   }
 
+  /// Simulates performing a check-in for the given [booking].
+  ///
+  /// In a real application, this would involve updating the booking status
+  /// via [BookingService]. Currently, it shows a [SnackBar] message and
+  /// then resets the scanner for the next scan.
+  ///
+  /// - [booking]: The [Booking] object for which to perform check-in.
   Future<void> _performCheckIn(Booking booking) async {
-    // Placeholder for actual check-in logic
-    // e.g., await _bookingService.updateBookingStatus(booking.bookingId, 'CheckedInByAdmin', adminId: _adminId);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('User for booking ${booking.bookingId} for room $_scannedRoomName checked in (simulated).'), backgroundColor: Colors.green)
     );
-    _resetScanner(); // Reset for next scan
+    _resetScanner();
   }
 
-
+  /// Builds the UI for the Admin QR Scanner Page.
+  ///
+  /// Conditionally displays either the camera scanner view or the details of a
+  /// scanned booking (or an error message). Provides a button to rescan.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -117,29 +160,31 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
       appBar: AppBar(title: const Text('Scan Booking QR Code')),
       body: Column(
         children: <Widget>[
+          // Camera View: Shown only if no booking is scanned and no error is present.
           if (_scannedBooking == null && _scanErrorMessage == null)
             Expanded(
-              flex: 2,
+              flex: 2, // Give more space to the camera view initially
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   MobileScanner(
                     controller: _scannerController,
                     onDetect: _handleBarcodeDetect,
-                    // fit: BoxFit.cover,
                   ),
+                  // Show a loader specifically when a scan is detected but details are not yet fetched.
                   if (_isProcessingScan && _scannedBooking == null && _scanErrorMessage == null)
-                    const CircularProgressIndicator(), // Show loader only during initial processing before details/error
+                    const CircularProgressIndicator(),
                 ],
               ),
             ),
 
+          // Details/Error/Prompt Area: Expands when details or error are shown.
           Expanded(
             flex: _scannedBooking != null || _scanErrorMessage != null ? 3 : 1,
             child: Padding(
               padding: const EdgeInsets.all(16.0),
-              child: _isProcessingScan && _scannedBooking == null && _scanErrorMessage == null
-                  ? const Center(child: CircularProgressIndicator()) // Also show loader here if processing takes time after scan detection UI part
+              child: (_isProcessingScan && _scannedBooking == null && _scanErrorMessage == null)
+                  ? const Center(child: CircularProgressIndicator()) // General processing loader
                   : _scannedBooking != null
                     ? _buildBookingDetailsCard(theme, _scannedBooking!, _scannedRoomName ?? _scannedBooking!.roomId)
                     : _scanErrorMessage != null
@@ -148,6 +193,7 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
             ),
           ),
 
+          // "Scan Another" button: Shown after a scan attempt (success or error).
           if ((_scannedBooking != null || _scanErrorMessage != null))
             Padding(
               padding: const EdgeInsets.only(bottom: 16.0, top: 8.0),
@@ -162,6 +208,11 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
     );
   }
 
+  /// Builds a card widget to display verified booking details.
+  ///
+  /// - [theme]: The current application [ThemeData].
+  /// - [booking]: The [Booking] object containing details to display.
+  /// - [roomName]: The display name of the room.
   Widget _buildBookingDetailsCard(ThemeData theme, Booking booking, String roomName) {
     return Card(
       elevation: 4,
@@ -213,6 +264,7 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
     );
   }
 
+  /// Helper to build a styled row for displaying a piece of detail.
   Widget _buildDetailRow(ThemeData theme, IconData icon, String label, String value, {Color? statusColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
@@ -228,6 +280,7 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
     );
   }
 
+  /// Builds a card widget to display scan error messages.
   Widget _buildErrorCard(ThemeData theme, String message) {
      return Card(
       elevation: 4,
@@ -250,6 +303,7 @@ class _AdminQrScannerPageState extends State<AdminQrScannerPage> {
     );
   }
 
+  /// Returns a [Color] based on the booking [status] for UI display.
   Color _getStatusColor(String status, ThemeData theme) {
     switch (status.toLowerCase()) {
       case 'approved': return Colors.green.shade700;

@@ -2,20 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:library_booking/services/feedback_service.dart' as app_feedback; // Aliased
 
+/// Admin page for viewing and managing user-submitted feedback.
+///
+/// Displays feedback items in a tabbed interface, filtered by status:
+/// 'Pending Review', 'Addressed', and 'All'. Administrators can:
+/// - View details of each feedback item.
+/// - Mark feedback as addressed and add administrative notes.
+/// - Update existing admin notes on addressed feedback.
+/// - Delete feedback items.
 class AdminViewFeedbackPage extends StatefulWidget {
+  /// Creates an instance of [AdminViewFeedbackPage].
   const AdminViewFeedbackPage({super.key});
-  static const String routeName = '/admin/view-feedback'; // Already defined
+
+  /// The named route for this page.
+  static const String routeName = '/admin/view-feedback';
 
   @override
   State<AdminViewFeedbackPage> createState() => _AdminViewFeedbackPageState();
 }
 
+/// Manages the state for the [AdminViewFeedbackPage].
+///
+/// Handles fetching and displaying feedback based on selected status filters,
+/// interacting with [app_feedback.FeedbackService] to update or delete feedback items,
+/// and managing the [TabController] for status filtering.
 class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with SingleTickerProviderStateMixin {
   final app_feedback.FeedbackService _feedbackService = app_feedback.FeedbackService();
 
   TabController? _tabController;
   final List<String> _feedbackFilters = ['Pending Review', 'Addressed', 'All'];
-  // _selectedFilter is implicitly managed by TabController's index.
+  // _selectedFilter is implicitly managed by _tabController.index and used in _loadFeedbackForFilter.
 
   Stream<List<app_feedback.Feedback>>? _feedbackStream;
 
@@ -24,37 +40,52 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
     super.initState();
     _tabController = TabController(length: _feedbackFilters.length, vsync: this);
     _tabController!.addListener(() {
-      if (!_tabController!.indexIsChanging) {
-         // Triggered when tab selection is finalized
+      // Load feedback when tab selection is finalized.
+      if (!_tabController!.indexIsChanging && mounted) {
         _loadFeedbackForFilter(_feedbackFilters[_tabController!.index]);
       }
     });
     _loadFeedbackForFilter(_feedbackFilters.first); // Initial load for "Pending Review"
   }
 
+  /// Loads the stream of feedback items based on the selected [filter].
+  ///
+  /// Updates [_feedbackStream] by calling the appropriate method on [app_feedback.FeedbackService]:
+  /// - `getFeedbackByStatus(false)` for "Pending Review".
+  /// - `getFeedbackByStatus(true)` for "Addressed".
+  /// - `getAllFeedback()` for "All".
+  ///
+  /// - [filter]: The status filter string (e.g., 'Pending Review', 'Addressed', 'All').
   void _loadFeedbackForFilter(String filter) {
     setState(() {
-      // _selectedFilter = filter; // Not strictly needed if using tabController.index to determine current filter
       if (filter == 'Pending Review') {
-        _feedbackStream = _feedbackService.getFeedbackByStatus(false); // isAddressed = false
+        _feedbackStream = _feedbackService.getFeedbackByStatus(false);
       } else if (filter == 'Addressed') {
-        _feedbackStream = _feedbackService.getFeedbackByStatus(true); // isAddressed = true
+        _feedbackStream = _feedbackService.getFeedbackByStatus(true);
       } else { // 'All'
         _feedbackStream = _feedbackService.getAllFeedback();
       }
     });
   }
 
+  /// Shows a dialog for an admin to mark feedback as addressed or update existing admin notes.
+  ///
+  /// If the [feedbackItem] is not yet addressed, this action will mark it as addressed
+  /// using [app_feedback.FeedbackService.markAsAddressed].
+  /// If it's already addressed, it allows updating the notes via
+  /// [app_feedback.FeedbackService.updateAdminNotes].
+  /// Displays a [SnackBar] with the outcome of the operation.
+  ///
+  /// - [feedbackItem]: The [app_feedback.Feedback] object to be actioned.
   Future<void> _markAsAddressedDialog(app_feedback.Feedback feedbackItem) async {
-    String? adminNotes = feedbackItem.adminNotes;
-    final notesController = TextEditingController(text: adminNotes);
+    final notesController = TextEditingController(text: feedbackItem.adminNotes ?? '');
 
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           title: Text(feedbackItem.isAddressed ? 'Update Admin Notes' : 'Mark as Addressed'),
-          content: SingleChildScrollView( // Added SingleChildScrollView for potentially long content
+          content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -72,7 +103,6 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
                     border: OutlineInputBorder(),
                   ),
                   maxLines: 3,
-                  onChanged: (value) => adminNotes = value, // adminNotes will be updated if dialog is confirmed
                 ),
               ],
             ),
@@ -92,7 +122,7 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
 
     if (confirm == true) {
       try {
-        String finalNotes = notesController.text.trim(); // Use controller's final text
+        String finalNotes = notesController.text.trim();
         if (feedbackItem.isAddressed) {
             await _feedbackService.updateAdminNotes(feedbackItem.feedbackId, finalNotes);
             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin notes updated.'), backgroundColor: Colors.blue));
@@ -100,12 +130,19 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
             await _feedbackService.markAsAddressed(feedbackItem.feedbackId, finalNotes);
             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Feedback marked as addressed.'), backgroundColor: Colors.green));
         }
+        // StreamBuilder should automatically reflect changes.
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update feedback: ${e.toString()}'), backgroundColor: Colors.red));
       }
     }
   }
 
+  /// Shows a confirmation dialog before permanently deleting a [feedbackItem].
+  ///
+  /// If confirmed, calls [app_feedback.FeedbackService.deleteFeedback].
+  /// Displays a [SnackBar] with the outcome.
+  ///
+  /// - [feedbackItem]: The [app_feedback.Feedback] object to be deleted.
   Future<void> _deleteFeedbackDialog(app_feedback.Feedback feedbackItem) async {
       bool? confirmDelete = await showDialog<bool>(
         context: context,
@@ -131,13 +168,18 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
         try {
           await _feedbackService.deleteFeedback(feedbackItem.feedbackId);
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Feedback deleted successfully.'), backgroundColor: Colors.orange));
+          // StreamBuilder will update the list.
         } catch (e) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete feedback: ${e.toString()}'), backgroundColor: Colors.red));
         }
       }
   }
 
-
+  /// Builds the UI for the Admin View Feedback Page.
+  ///
+  /// Features a [TabBar] for filtering feedback by status. Each tab displays
+  /// relevant feedback items using a [StreamBuilder]. Admins can view feedback
+  /// details and perform actions like marking as addressed or deleting.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -164,13 +206,13 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
               }
               final feedbackList = snapshot.data ?? [];
 
-              // Note: The stream is already filtered by _loadFeedbackForFilter.
-              // No additional client-side filtering needed here for statusFilter.
-              // Sorting is good to keep if service doesn't guarantee it or for consistency.
+              // The stream is already filtered by _loadFeedbackForFilter.
+              // Sorting is maintained here for consistency if service doesn't guarantee it for all methods.
               feedbackList.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
 
               if (feedbackList.isEmpty) {
+                // Use the currently selected tab name for the empty message.
                 return Center(child: Text('No feedback items found for "${_feedbackFilters[_tabController?.index ?? 0]}".'));
               }
 
@@ -182,7 +224,7 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
                   return Card(
                     elevation: theme.cardTheme.elevation,
                     shape: theme.cardTheme.shape,
-                    margin: theme.cardTheme.margin?.copyWith(top: 8, bottom: 0),
+                    margin: const EdgeInsets.fromLTRB(8, 8, 8, 4), // Using fixed margin from previous fix
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
                       child: Column(
@@ -229,7 +271,7 @@ class _AdminViewFeedbackPageState extends State<AdminViewFeedbackPage> with Sing
                                 label: Text(item.isAddressed ? 'Edit Notes' : 'Address'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: item.isAddressed ? theme.colorScheme.secondary : Colors.green.shade700,
-                                  foregroundColor: Colors.white, // Ensure text contrast
+                                  foregroundColor: Colors.white,
                                 ),
                                 onPressed: () => _markAsAddressedDialog(item),
                               ),

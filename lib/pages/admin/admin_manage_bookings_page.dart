@@ -329,7 +329,7 @@ class _AdminManageBookingsPageState extends State<AdminManageBookingsPage> with 
                       return Card(
                         elevation: theme.cardTheme.elevation,
                         shape: theme.cardTheme.shape,
-                        margin: theme.cardTheme.margin?.copyWith(top: 8, bottom: 0),
+                        margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
                           child: Column(
